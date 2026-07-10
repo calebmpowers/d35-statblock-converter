@@ -407,7 +407,7 @@ $fileTop.Dock = 'Fill'
 $fileLayout.Controls.Add($fileTop, 0, 0)
 
 $filePathBox = New-Object System.Windows.Forms.TextBox
-$filePathBox.Width = 700
+$filePathBox.Width = 560
 $fileTop.Controls.Add($filePathBox)
 
 $browseFileButton = New-Object System.Windows.Forms.Button
@@ -447,8 +447,8 @@ $fileBottom.Dock = 'Fill'
 $fileLayout.Controls.Add($fileBottom, 0, 2)
 
 $convertFileButton = New-Object System.Windows.Forms.Button
-$convertFileButton.Text = 'Convert File'
-$convertFileButton.Width = 105
+$convertFileButton.Text = 'Convert Selected File'
+$convertFileButton.Width = 145
 $convertFileButton.Add_Click({
     if (-not (Test-Path -LiteralPath $filePathBox.Text)) {
         $statusLabel.Text = 'Choose a valid file first.'
@@ -460,7 +460,13 @@ $convertFileButton.Add_Click({
     $outputBox.Text = if ($result.Status -eq 'OK') { $script:LastOutputText } else { $result.Error }
     $statusLabel.Text = Get-ConversionStatusMessage -Results @($result) -ReportPath $reportPath
 })
-$fileBottom.Controls.Add($convertFileButton)
+$fileTop.Controls.Add($convertFileButton)
+
+$fileHint = New-Object System.Windows.Forms.Label
+$fileHint.Text = 'Choose a file, then use Convert Selected File above.'
+$fileHint.AutoSize = $true
+$fileHint.Margin = New-Object System.Windows.Forms.Padding(8, 12, 4, 4)
+$fileBottom.Controls.Add($fileHint)
 
 $folderLayout = New-Object System.Windows.Forms.TableLayoutPanel
 $folderLayout.Dock = 'Fill'
