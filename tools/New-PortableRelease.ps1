@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Path $PSScriptRoot -Parent
 
 if (-not $Destination) {
-    $Destination = Join-Path $repoRoot 'dist\D35-Statblock-Converter-0.3.1'
+    $Destination = Join-Path $repoRoot 'dist\D35-Statblock-Converter-0.3.2'
 }
 
 if (Test-Path -LiteralPath $Destination) {
