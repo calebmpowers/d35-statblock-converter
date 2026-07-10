@@ -41,6 +41,56 @@ See `Quick Start.md` for the normal workflow.
 
 For reliable source formatting, start with `templates\Dungeon Magazine Stat Block Template.txt` and follow `Stat Block Authoring Guide.md`.
 
+## From a Raw Stat Block to a Roll20 Character and Token
+
+This is the complete everyday workflow. You do not need to know how to code.
+
+### 1. Start with the raw stat block
+
+Copy the creature's stat block from your source into a document. Keep the stat block itself, its attack lines, spell lists, and special abilities together. Leave out adventure text, flavor paragraphs, page headers, and tables.
+
+### 2. Put it into the supplied template
+
+Open `templates\Dungeon Magazine Stat Block Template.txt` and copy it into a new document. Move the information from the raw stat block into the matching template lines, then remove any line the creature does not use. Replace every `XXX`; do not leave placeholders behind.
+
+Keep the section order and labels such as `Init`, `AC`, `hp`, `Spd`, `Melee`, `Ranged`, `Abilities`, `Feats`, and `Skills`. This is what lets the converter recognize each part. The [Stat Block Authoring Guide](Stat%20Block%20Authoring%20Guide.md) explains spells, special abilities, and the most common formatting mistakes.
+
+### 3. Save a clean input file
+
+Save one creature per file as a UTF-8 `.txt` file or a normal `.docx` file. A plain-text file is the easiest choice. Put it in the `Stat Blocks` folder, or keep it anywhere you can browse to from the app.
+
+### 4. Convert it
+
+1. Double-click `Launch D35 Converter.bat`.
+2. Choose the `File` tab, select your `.txt` or `.docx` stat block, and leave Output set to `Handout JSON`.
+3. Click `Convert File`.
+4. Read the status message. If it reports warnings, click `Open Report` and fix the source file before converting again.
+
+The app writes a new JSON file in `Converted JSON`. It never overwrites an older conversion; it adds a number to the filename when needed.
+
+### 5. Set up the Roll20 game once
+
+This importer needs a Roll20 game using the compatible D&D 3.5 character sheet. Roll20's Mod (API) Scripts are available to a Pro subscriber's games and are installed separately for each game. [Roll20's Mod Script guide](https://help.roll20.net/hc/en-us/articles/360037256714-Introduction-to-Mod-Scripts-API) explains the current interface.
+
+1. Open the game’s landing page in Roll20.
+2. Open **Settings** → **Mod (API) Scripts**.
+3. Choose **New Script**.
+4. Name it `D35 Statblock Importer`.
+5. Paste the contents of `Roll20 Importer\D35_Statblock_Importer.js`.
+6. Save the script and let Roll20 restart its script sandbox.
+7. In the game chat, run `!d35import --help` to confirm that the importer is available.
+
+### 6. Import the character and create its token
+
+1. In Roll20, create a handout with a memorable name, such as `Goblin Raider Import`.
+2. Open the converted `.dnd35.json` file and paste its entire contents into that handout’s **GM Notes**.
+3. Drag any token image onto the map and select that token.
+4. In chat, run `!d35import <handout name>`, replacing `<handout name>` with the handout's exact name.
+
+The importer creates the character, fills in the converted data, and binds the selected token to that character. It also sets the token’s health and AC bars. Open the character sheet afterward and quickly check the name, CR, AC, hit points, attacks, skills, and spells.
+
+If a creature needs manual correction, edit the source stat block, reconvert it, and import the new handout rather than trying to repair raw JSON by hand.
+
 ### Convert a single stat block to Roll20 handout JSON
 
 Use `Convert-D35StatBlock.ps1`:
@@ -137,3 +187,7 @@ To exercise the non-shipping legacy Python comparison converter, run `tests\lega
 ## License and content
 
 The original converter code and documentation are released under the [MIT License](LICENSE). Read [NOTICE.md](NOTICE.md) before redistributing the bundled template, spell macros, fixtures, or other game-content assets.
+
+## Credits
+
+Created and maintained by Caleb M. Powers. Developed with implementation, testing, and documentation assistance from OpenAI Codex.
