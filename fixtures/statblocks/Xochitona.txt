@@ -1,0 +1,30 @@
+﻿Xochitona CR 7
+Female human druid 7
+Neutral Good Medium humanoid (human)
+Creature reference
+Init +2; Senses Listen +10, Spot +10
+Languages Common, Druidic, Olman
+________________
+AC 18, touch 12, flat-footed 16
+hp 45 (7d8+14)
+Fort +7, Ref +4, Will +8
+________________
+Spd 30 ft.
+Melee +1 scimitar +7 (1d6+2/18-20) or quarterstaff +7 (1d6+2)
+Ranged javelin +7 (1d6+2)
+Base Atk +5; Grp +7
+Atk Options Augment Summoning, spontaneous summon nature’s ally
+Special actions wild shape 2/day (Small or Medium animals), spontaneous casting (summon nature’s ally)
+Combat Gear potion of barkskin, potion of resist energy (acid), scroll of stone to flesh, scroll of neutralize poison
+Spells Prepared/Known (CL 7th, melee touch +5, ranged touch +7):
+4th (2/day)-flame strike (DC 17), summon nature’s ally IV
+3rd (3/day)-call lightning (DC 16), sleet storm, summon nature’s ally III
+2nd (4/day)-barkskin, resist energy, flaming sphere (DC 15), summon nature’s ally II
+1st (5/day)-entangle (DC 14), obscuring mist, faerie fire, longstrider, speak with animals
+0 (6/day)-detect magic, guidance, resistance, create water, light, purify food and drink
+________________
+Abilities Str 14, Dex 14, Con 14, Int 10, Wis 17, Cha 10
+SQ animal companion, nature sense, trackless step, resist nature’s lure, wild empathy +7, woodland stride
+Feats Spell Focus (Conjuration), Augment Summoning, Natural Spell
+Skills Concentration +12, Knowledge (nature) +10, Survival +13, Listen +10, Spot +10
+Possessions +1 hide armor, +1 scimitar, amulet of natural armor +1, cloak of resistance +1, tribal fetishes, basilisk fang necklace, obsidian charm tokens

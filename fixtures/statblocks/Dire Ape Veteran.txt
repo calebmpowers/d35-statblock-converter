@@ -1,0 +1,27 @@
+Dire Ape Veteran CR 5
+Male advanced dire ape warrior 2
+N Large animal
+Bestiary fixture
+Init +3; Senses low-light vision, scent; Listen +8, Spot +8
+Languages -
+
+AC 17, touch 12, flat-footed 14; -1 size, +3 Dex, +5 natural
+hp 68 (7 HD)
+Fort +9, Ref +8, Will +3
+
+Spd 30 ft., climb 30 ft.
+Melee mwk longspear +10/+5 (2d6+9/x3) and bite +4 (1d8+3)
+Melee 2 claws +9 (1d6+6) and bite +4 (1d8+3)
+Ranged thrown rock +7 (2d6+6)
+Space 10 ft.; Reach 10 ft.
+Base Atk +6; Grp +16
+Atk Options Power Attack
+Special Actions rend 2d6+9
+
+Abilities Str 23, Dex 17, Con 16, Int 2, Wis 12, Cha 7
+SQ animal traits
+Feats Alertness, Power Attack, Toughness
+Skills Climb +14, Listen +8, Spot +8
+Possessions masterwork longspear
+
+Rend (Ex) If a dire ape veteran hits with both claw attacks, it latches onto the opponent's body and tears the flesh.

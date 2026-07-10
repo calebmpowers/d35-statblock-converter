@@ -1,0 +1,30 @@
+Temple Adept CR 4
+Female human cleric 4
+LG Medium humanoid (human)
+Divine fixture
+Init +0; Senses Listen +4, Spot +4
+Aura good
+Languages Common, Celestial
+
+AC 18, touch 10, flat-footed 18; +6 chainmail, +2 heavy steel shield
+hp 30 (4 HD)
+Fort +7, Ref +1, Will +8
+
+Spd 20 ft.
+Melee mwk heavy mace +5 (1d8+1)
+Ranged light crossbow +3 (1d8/19-20)
+Space 5 ft.; Reach 5 ft.
+Base Atk +3; Grp +4
+Special Actions turn undead 5/day (+2, 2d6+6, 4th)
+Cleric Spells Prepared (CL 4th):
+2nd-bull's strength, hold person (DC 15), spiritual weaponD
+1st-bless, divine favor, protection from evilD, shield of faith
+0-create water, detect magic, guidance, light, resistance
+D: Domain spell. Domains Good, War
+
+Abilities Str 13, Dex 10, Con 14, Int 12, Wis 16, Cha 14
+SQ aura
+Feats Combat Casting, Extra Turning, Weapon Focus (heavy mace)
+Skills Concentration +9, Heal +10, Knowledge (religion) +8, Spellcraft +8
+Combat Gear scroll of remove paralysis, potion of cure moderate wounds
+Possessions masterwork heavy mace, chainmail, heavy steel shield, holy symbol

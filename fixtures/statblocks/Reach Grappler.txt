@@ -1,0 +1,27 @@
+Reach Grappler CR 8
+Usually chaotic evil Large monstrous humanoid
+Arena fixture
+Init +1; Senses darkvision 60 ft.; Listen +9, Spot +9
+Languages Giant
+
+AC 20, touch 10, flat-footed 19; -1 size, +1 Dex, +10 natural
+hp 95 (10 HD)
+Fort +10, Ref +8, Will +7
+
+Spd 40 ft.
+Melee spiked chain +14/+9 (2d6+7/19-20) or 2 slams +13 (1d8+7)
+Ranged javelin +10 (1d8+7)
+Space 10 ft.; Reach 15 ft. (20 ft. with spiked chain)
+Base Atk +10; Grp +21
+Atk Options Combat Reflexes, improved grab, trip
+Special Actions constrict 1d8+10
+
+Abilities Str 25, Dex 13, Con 18, Int 8, Wis 11, Cha 10
+SQ powerful build
+Feats Combat Reflexes, Improved Trip, Power Attack, Weapon Focus (spiked chain)
+Skills Climb +12, Intimidate +6, Listen +9, Spot +9
+Possessions spiked chain, 3 javelins
+
+Improved Grab (Ex) To use this ability, the reach grappler must hit a Medium or smaller opponent with a slam attack.
+
+Constrict (Ex) A reach grappler deals 1d8+10 points of damage with a successful grapple check.

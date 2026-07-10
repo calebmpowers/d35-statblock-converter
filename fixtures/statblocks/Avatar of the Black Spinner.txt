@@ -1,0 +1,49 @@
+﻿Avatar of the Black Spinner        CR 8
+Unique drider cleric 1
+Always chaotic evil Large aberration
+Init +2; Senses darkvision 60 ft.; Listen +9, Spot +9
+Languages Abyssal, Common, Undercommon
+________________
+
+
+AC 17, touch 11, flat-footed 15; -1 size, +2 Dex, +6 natural
+hp 53 (7 HD)
+SR 17
+Fort +7, Ref +4, Will +10
+________________
+
+
+Spd 30 ft., climb 15 ft.
+Melee bite +6 (1d4+1 plus poison) or dagger +5 (1d6+2/19-20); or 2 daggers +3 (1d6+2/19-20, 1d6+1/19-20) and bite +1 (1d4+1 plus poison)
+Ranged shortbow +5 (1d8/x3)
+Space 10 ft.; Reach 5 ft.
+Base Atk +4; Grp +10
+Atk Options poison
+Special Actions Abyssal Web Step (shadow jaunt), rebuke undead 6/day (+3, 2d6+4, 1st)
+Spells Prepared (CL 7th; evil spells CL 8th; melee touch +5, ranged touch +5; base save DC 13 + spell level):
+4th (2)—confusionD (DC 17), poison (DC 17)
+3rd (4)—bestow curse (DC 16), blindness/deafness (DC 16), dispel magic, magic circle against goodD
+2nd (5)—bull's strength, hold person (DC 15), silence (DC 15), sound burst (DC 15), invisibilityD
+1st (6)—bane (DC 14), cause fear (DC 14), command (DC 14), entropic shield, obscuring mist, protection from goodD
+0 (6)—detect magic, guidance (2), read magic, resistance, virtue
+D: Domain spell. Domains: Evil, Trickery
+Spell-Like Abilities (CL 6th; melee touch +5, ranged touch +5):
+1/day—dancing lights (DC 13), clairaudience/clairvoyance, darkness, detect good, detect law, detect magic, dispel magic, faerie fire, levitate, suggestion (DC 16)
+Maneuvers Known (IL 3rd; one use per encounter): Abyssal Web Step (shadow jaunt)
+________________
+
+
+Abilities Str 15, Dex 15, Con 16, Int 15, Wis 16, Cha 16
+SQ darkvision 60 ft., spell resistance 17
+Feats Martial Study (shadow jaunt), Two-Weapon Fighting, Weapon Focus (bite)
+Skills Climb +14, Concentration +13, Hide +10, Listen +9, Move Silently +12, Spot +9
+Possessions 2 daggers, shortbow with 20 arrows, unholy symbol of the Black Spinner
+________________
+
+
+Poison (Ex) Injury, Fortitude DC 16, initial and secondary damage 1d6 Str. The save DC is Constitution-based.
+Abyssal Web Step (Su) Once per encounter as a standard action, the avatar initiates shadow jaunt. It vanishes into a rent of sticky darkness and teleports up to 50 feet to a destination to which it has line of sight and line of effect.
+Rebuke Undead (Su) The avatar can rebuke or command undead 6 times per day as a 1st-level evil cleric.
+Spellcasting The avatar casts divine spells as a 7th-level cleric because its added cleric level stacks with the drider's innate cleric spellcasting. It uses the Evil and Trickery domains, can spontaneously convert prepared non-domain spells into inflict spells, and cannot cast good spells.
+Spell-Like Abilities The avatar retains the drider spell-like abilities granted by its manifestation. Save DCs are Charisma-based.
+Skills The avatar has a +4 racial bonus on Hide and Move Silently checks. It has a +8 racial bonus on Climb checks and can always choose to take 10 on Climb checks, even if rushed or threatened.

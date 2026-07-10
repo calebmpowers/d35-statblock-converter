@@ -1,0 +1,33 @@
+﻿Advanced Ochre Jelly                                                                                              CR 5
+Always neutral Large ooze
+Init -5; Senses blindsight 60 ft.
+________________
+
+
+AC 4, touch 4, flat-footed 4 (-1 size, -5 Dex)
+hp 155 (9 HD)
+Immune mind-affecting effects, gaze attacks, visual effects, illusions, poison, sleep, paralysis, polymorph, stunning, critical hits, flanking
+Fort +9, Ref -2, Will -2
+________________
+
+
+Spd 10 ft., climb 10 ft.
+Melee slam +7 melee (2d4+3 plus 1d4 acid)
+Space 10 ft.; Reach 5 ft.
+Base Atk +6; Grp +12
+Atk Options acid, constrict 2d4+3 plus 1d4 acid, improved grab
+________________
+
+
+Abilities Str 15, Dex 1, Con 22, Int —, Wis 1, Cha 1
+SQ blindsight 60 ft., ooze traits, split
+Skills Climb +10
+________________
+
+
+Acid (Ex) An ochre jelly secretes a digestive acid that dissolves only flesh. Any melee hit or constrict attack deals 1d4 points of acid damage.
+Blindsight (Ex) An ooze's entire body is a primitive sensory organ that can ascertain prey by scent and vibration within 60 feet.
+Constrict (Ex) An ochre jelly deals automatic slam and acid damage with a successful grapple check.
+Improved Grab (Ex) To use this ability, an ochre jelly must hit with its slam attack. It can then attempt to start a grapple as a free action without provoking an attack of opportunity. If it wins the grapple check, it establishes a hold and can constrict.
+Split (Ex) Slashing and piercing weapons and electricity attacks deal no damage to an ochre jelly. Instead the creature splits into two identical jellies, each with half of the original's current hit points (round down). A jelly with 10 hit points or less cannot be further split and dies if reduced to 0 hit points.
+Skills An ochre jelly has a +8 racial bonus on Climb checks and can always choose to take 10 on a Climb check, even if rushed or threatened.

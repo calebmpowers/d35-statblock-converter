@@ -1,0 +1,45 @@
+﻿Chittrik, Black Spinner Shaman        CR 6
+Male ettercap adept 5
+Neutral evil Medium aberration
+Init +4; Senses low-light vision; Listen +6, Spot +10
+Languages Common
+________________
+
+
+AC 15, touch 14, flat-footed 11; +4 Dex, +1 natural
+hp 50 (10 HD; 5d8+5d6+10)
+Fort +5, Ref +6, Will +12
+________________
+
+
+Spd 30 ft., climb 30 ft.
+Melee mwk hooked sickle +8 (1d6+2) and bite +5 (1d8+1 plus poison) and claw +5 (1d3+1); or bite +7 (1d8+2 plus poison) and 2 claws +5 (1d3+1)
+Ranged web +9 ranged touch
+Space 5 ft.; Reach 5 ft.
+Base Atk +5; Grp +7
+Atk Options poison, web, Shadow-Fang Lunge
+Special Actions Black Spinner's Veil
+Adept Spells Prepared (CL 5th, melee touch +7, ranged touch +9):
+2nd (2/day)—darkness, web (DC 16)
+1st (3/day)—cause fear (DC 15), command (DC 15), obscuring mist
+0 (3/day)—ghost sound (DC 14), guidance, touch of fatigue (DC 14)
+Maneuvers Known (IL 5th): 1/encounter each—Black Spinner's Veil (cloak of deception), Shadow-Fang Lunge (clinging shadow strike, DC 15)
+________________
+
+
+Abilities Str 14, Dex 18, Con 13, Int 6, Wis 18, Cha 7
+SQ low-light vision
+Feats Great Fortitude, Martial Study (Black Spinner's Veil), Martial Study (Shadow-Fang Lunge), Multiattack
+Skills Climb +10, Concentration +6, Craft (trapmaking) +4, Hide +10, Listen +6, Spot +10
+Possessions masterwork hooked sickle, web-wrapped divine focus, bone-and-chitin shaman fetishes
+________________
+
+
+Poison (Ex) Injury, Fortitude DC 18, initial damage 1d6 Dex, secondary damage 2d6 Dex. The save DC is Constitution based and includes a +2 racial bonus.
+Web (Ex) Chittrik can throw a web eight times per day. This is similar to an attack with a net but has a maximum range of 50 feet, with a range increment of 10 feet, and is effective against targets of up to Medium size. The web anchors the target in place, allowing no movement.
+An entangled creature can escape with a DC 16 Escape Artist check or burst the web with a DC 20 Strength check. The check DCs are Constitution-based, and the Strength check DC includes a +4 racial bonus. The web has 6 hit points, hardness 0, and takes double damage from fire.
+Chittrik can also create sheets of sticky webbing from 5 to 60 feet square. He positions these to divide intruders, screen his hunters, and trap spellcasters or archers. Approaching creatures must succeed on a DC 20 Spot check to notice a web, or they stumble into it and become trapped as though by a successful web attack. Attempts to escape or burst the webbing receive a +5 bonus if the trapped creature has something to walk on or grab while pulling free.
+Each 5-foot-square section has 6 hit points, hardness 0, and takes double damage from fire.
+Chittrik can move across his own sheet web at his climb speed and can determine the exact location of any creature touching the web.
+Black Spinner's Veil (Su) Once per encounter as a swift action, Chittrik vanishes beneath a veil of crawling shadow-web. This is cloak of deception from the Shadow Hand discipline, reflavored: Chittrik becomes invisible as greater invisibility until the end of his current turn.
+Shadow-Fang Lunge (Su) Once per encounter as a standard action, Chittrik makes a single melee attack with a weapon or natural weapon. If the attack hits, it deals an extra 1d6 points of damage, and the target must succeed on a DC 15 Fortitude save or suffer a 20% miss chance on all melee and ranged attacks for 1 round. This is clinging shadow strike from the Shadow Hand discipline, reflavored as a bite or hooked-sickle strike wrapped in sticky demonic shadow.

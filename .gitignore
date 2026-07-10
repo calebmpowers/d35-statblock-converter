@@ -1,0 +1,13 @@
+_*
+!_README*
+reports/*.csv
+reports/*.txt
+Converted JSON/legacy-format/
+Converted JSON/*.json
+Stat Blocks/
+*.lnk
+*.tmp
+*.bak
+__pycache__/
+*.pyc
+dist/

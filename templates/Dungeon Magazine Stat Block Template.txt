@@ -1,0 +1,47 @@
+﻿Character Name                                                                                                    CR XX
+Creature race, templates, and class levels
+Creature alignment, size, and type (subtype)
+Creature reference
+Init XXX; Senses XXX; Listen XXX, Spot XXX
+Aura XXX
+Languages XXX
+________________
+
+
+AC XXX, touch XXX, flat-footed XXX; Conditional AC modifiers
+hp XXX (XXX HD); hp related special abilities; DR XXX/XXX
+Immune XXX
+Resist XXX SR XXX
+Fort XXX, Ref XXX, Will XXX (Conditional save modifiers)
+Weaknesses XXX
+________________
+
+
+Spd XXX ft., burrow XXX ft., climb XXX ft., fly XXX ft (maneuverability), swim XXX ft.
+Melee weapon +attack bonus (damage/critical hit information plus conditional damage) and/or weapon +attack bonus (damage/critical hit information plus conditional damage)
+Ranged weapon +attack bonus (damage/critical hit information plus conditional damage) and/or weapon +attack bonus (damage/critical hit information plus conditional damage)
+Space XXX; Reach XXX
+Base Atk XXX; Grp XXX
+Atk Options XXX
+Special actions XXX
+Combat Gear XXX
+Spells Prepared/Known (CL XXX, melee touch XXX, ranged touch XXX):
+Spell level in descending order (number of spells/day)—spell name (DC XXX) 
+Domains/Prohibited schools
+Spell-Like Abilities (CL 3rd, melee touch XXX, ranged touch XXX):
+Number of times per day (fewest to most)—ability name (DC XXX)
+*Use this to indicate any spells or abilities (such as mage armor or Power Attack) that have already been incorporated into its stat block
+________________
+
+
+Abilities Str XXX, Dex XXX, Con XXX, Int XXX, Wis XXX, Cha XXX
+SQ XXX
+Feats XXX
+Skills XXX
+Possessions combat gear, XXX
+Spellbook XXX
+*Use this to indicate any inherent bonuses to the creature’s ability scores
+________________
+
+
+Special Ability Name (Sp/Su/Ex) Special ability description.

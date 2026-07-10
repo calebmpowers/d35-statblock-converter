@@ -1,0 +1,38 @@
+{
+  "project": "D35 Statblock Importer",
+  "release_version": "0.3.1",
+  "workspace_root": ".",
+  "versions": [
+    {
+      "id": "current_chat_version",
+      "name": "D35StatblockImporter",
+      "version": "0.3.0",
+      "source": "user_pasted_chat_script",
+      "file": "D35_Statblock_Importer.js",
+      "notes": [
+        "Cleaned and current importer version restored from pasted chat script",
+        "Adds more robust normalization and parsing helpers",
+        "Expands equipment, skill, spell, and weapon handling",
+        "Duplicate helper definitions from recovery were removed in the 0.3.0 cleanup pass"
+      ]
+    }
+  ],
+  "support_files": [
+    "D35_Statblock_Importer.js",
+    "D35 Converter App.ps1",
+    "Launch D35 Converter.bat",
+    "Convert-D35StatBlock.ps1",
+    "Dnd35JsonTools.psm1",
+    "DungeonStatBlockParser.psm1",
+    "sample-dungeon-statblock.txt",
+    "README.md",
+    "Spell Macros",
+    "fixtures",
+    "Quick Start.md",
+    "Roll20 Importer",
+    "tests/smoke_test.ps1",
+    "tests/roll20_mock_test.ps1",
+    "tools/Test-Roll20ImporterPayload.ps1",
+    "tools/statblock_converter.py"
+  ]
+}

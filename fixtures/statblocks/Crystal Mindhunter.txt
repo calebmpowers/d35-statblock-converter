@@ -1,0 +1,32 @@
+Crystal Mindhunter CR 7
+Male elan psion 7
+LN Medium aberration (psionic)
+Expanded fixture
+Init +2; Senses darkvision 60 ft.; Listen +4, Spot +4
+Languages Common, Draconic, Elan
+
+AC 16, touch 12, flat-footed 14; +2 Dex, +4 inertial armor
+hp 38 (7 HD)
+Resist psionic resilience
+Fort +4, Ref +4, Will +8
+
+Spd 30 ft.
+Melee crystal dagger +4 (1d4-1/19-20)
+Ranged light crossbow +6 (1d8/19-20)
+Space 5 ft.; Reach 5 ft.
+Base Atk +3; Grp +2
+Atk Options psionic focus
+Special Actions elan resilience, elan resistance
+Power Points/Day 58; Psion Powers Known (ML 7th):
+4th-ego whip (DC 18), psionic dimension door
+3rd-energy burst (DC 17), touchsight
+2nd-body adjustment, concealing amorpha, ego whip (DC 16)
+1st-force screen, inertial armor, mind thrust (DC 15), vigor
+
+Abilities Str 8, Dex 14, Con 12, Int 18, Wis 10, Cha 11
+SQ naturally psionic
+Feats Overchannel, Psionic Meditation, Psicrystal Affinity, Talented
+Skills Autohypnosis +10, Concentration +11, Knowledge (psionics) +14, Psicraft +14, Spot +4
+Possessions crystal dagger, light crossbow with 20 bolts, headband of intellect +2
+
+Elan Resilience (Su) As an immediate action, the mindhunter can spend power points to reduce incoming damage.

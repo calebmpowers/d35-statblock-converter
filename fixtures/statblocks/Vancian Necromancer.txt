@@ -1,0 +1,30 @@
+Vancian Necromancer CR 5
+Male human wizard 5
+NE Medium humanoid (human)
+Arcane fixture
+Init +2; Senses Listen +1, Spot +1
+Languages Common, Draconic, Infernal
+
+AC 15, touch 12, flat-footed 13; +2 Dex, +3 mage armor
+hp 19 (5 HD)
+Fort +3, Ref +3, Will +5
+
+Spd 30 ft.
+Melee dagger +2 (1d4-1/19-20)
+Ranged ray +4 touch
+Space 5 ft.; Reach 5 ft.
+Base Atk +2; Grp +1
+Atk Options ray spells
+Wizard Spells Prepared (CL 5th):
+3rd-fireball (DC 17), vampiric touch
+2nd-blindness/deafness (DC 16), false life, scorching ray
+1st-mage armor, magic missile, ray of enfeeblement (DC 15), shield
+0-detect magic, disrupt undead, mage hand, read magic
+Spellbook 0-all; 1st-cause fear, mage armor, magic missile, ray of enfeeblement, shield; 2nd-blindness/deafness, false life, scorching ray; 3rd-fireball, vampiric touch
+
+Abilities Str 8, Dex 14, Con 12, Int 18, Wis 13, Cha 10
+SQ familiar
+Feats Combat Casting, Scribe Scroll, Spell Focus (necromancy), Spell Penetration
+Skills Concentration +9, Knowledge (arcana) +12, Knowledge (religion) +10, Spellcraft +14
+Combat Gear wand of magic missile (CL 3rd, 20 charges)
+Possessions dagger, spellbook, cloak of resistance +1

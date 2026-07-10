@@ -1,0 +1,30 @@
+Ashen Grave Swarm CR 6
+Always neutral evil Diminutive undead (incorporeal, swarm)
+Forgotten fixture
+Init +7; Senses darkvision 60 ft.; Listen +12, Spot +12
+Aura despair (30 ft., DC 16)
+Languages understands Common
+
+AC 18, touch 18, flat-footed 15; +4 size, +3 Dex, +1 deflection
+hp 66 (12 HD); DR 5/magic
+Immune undead traits, weapon damage
+Resist turn resistance +2
+Fort +4, Ref +7, Will +10
+Weaknesses swarm vulnerabilities
+
+Spd fly 30 ft. (perfect)
+Melee swarm (3d6 plus despair)
+Space 10 ft.; Reach 0 ft.
+Base Atk +6; Grp -
+Atk Options distraction (DC 16), incorporeal touch
+Special Actions engulf memory
+
+Abilities Str -, Dex 17, Con -, Int 6, Wis 15, Cha 13
+SQ incorporeal traits, swarm traits, undead traits
+Feats Ability Focus (distraction), Alertness, Improved Initiative, Lightning Reflexes, Skill Focus (Hide)
+Skills Hide +24, Listen +12, Move Silently +18, Spot +12
+Possessions none
+
+Distraction (Ex) Any living creature that begins its turn with an ashen grave swarm in its space must succeed on a DC 16 Fortitude save or be nauseated for 1 round.
+
+Engulf Memory (Su) A creature damaged by the swarm takes a -2 penalty on Knowledge checks and bardic knowledge checks for 1 hour.
