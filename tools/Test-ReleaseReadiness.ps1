@@ -27,6 +27,8 @@ function Assert-RequiredPath {
     'LICENSE',
     'NOTICE.md',
     'Stat Block Authoring Guide.md',
+    'templates\D&D 3.5e Stat Block Template.docx',
+    'templates\Dungeon Magazine Stat Block Template.txt',
     'README.md',
     'Quick Start.md',
     'Roll20 Importer\README.md',

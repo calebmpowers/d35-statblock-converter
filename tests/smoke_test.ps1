@@ -134,6 +134,12 @@ try {
         Assert-Equal -Label "$($fixture.file) speed line" -Actual $json.creature.offense.speed_line -Expected $expected.speed_line
         Assert-Equal -Label "$($fixture.file) abilities line" -Actual $json.creature.statistics.abilities_line -Expected $expected.abilities_line
         Assert-Count -Label "$($fixture.file) feats" -Items $json.creature.statistics.feats -Expected $expected.feat_count
+        if ($expected.PSObject.Properties['feat_detail_count']) {
+            Assert-Count -Label "$($fixture.file) feat details" -Items $json.creature.statistics.feat_details -Expected $expected.feat_detail_count
+        }
+        if ($expected.PSObject.Properties['skill_detail_count']) {
+            Assert-Count -Label "$($fixture.file) skill details" -Items $json.creature.statistics.skill_details -Expected $expected.skill_detail_count
+        }
         Assert-Count -Label "$($fixture.file) skills" -Items $json.creature.statistics.skills -Expected $expected.skill_count
         Assert-Count -Label "$($fixture.file) possessions" -Items $json.creature.statistics.possessions -Expected $expected.possession_count
         Assert-Count -Label "$($fixture.file) melee lines" -Items $json.creature.offense.melee_lines -Expected $expected.melee_line_count
@@ -147,7 +153,50 @@ try {
         }
         Assert-Equal -Label "$($fixture.file) spell entries" -Actual $spellEntryCount -Expected $expected.spell_entry_count
         Assert-Count -Label "$($fixture.file) special abilities" -Items $json.creature.special_abilities -Expected $expected.special_ability_count
+        if ($expected.PSObject.Properties['ordinary_entry_count']) {
+            Assert-Count -Label "$($fixture.file) ordinary lower entries" -Items $json.creature.ordinary_entries -Expected $expected.ordinary_entry_count
+        }
+        if ($expected.PSObject.Properties['spell_reference_count']) {
+            $referenceCount = @($json.creature.spell_reference.levels | ForEach-Object { $_.spells }).Count
+            Assert-Equal -Label "$($fixture.file) Spell Reference entries" -Actual $referenceCount -Expected $expected.spell_reference_count
+        }
+        if ($expected.PSObject.Properties['has_lower_skills_entry']) {
+            Assert-Equal -Label "$($fixture.file) lower Skills entry presence" -Actual ($null -ne $json.creature.lower_skills_entry) -Expected $expected.has_lower_skills_entry
+        }
         Assert-Count -Label "$($fixture.file) warnings" -Items $json.warnings -Expected $expected.warning_count
+
+        if ($fixture.file -eq 'Baseline Power Brute.txt') {
+            Assert-Equal -Label 'Power Attack baseline melee line' -Actual $json.creature.offense.melee_lines[0].raw -Expected 'Melee +1 greataxe +12 (1d12+7/x3)'
+            if (($json.creature.ordinary_entries | Where-Object { $_.name -eq 'Power Attack' }).body -notmatch 'No fixed value') {
+                throw 'Power Attack lower rules text was not preserved.'
+            }
+        }
+        elseif ($fixture.file -eq 'Conditional Skill Scout.txt') {
+            Assert-Equal -Label 'Conditional skill baseline' -Actual $json.creature.statistics.skills[2] -Expected 'Move Silently 9 (+13 in forested areas)'
+            if ($json.creature.lower_skills_entry.raw -notmatch 'does not replace or add') {
+                throw 'Distinctive lower Skills rules text was not preserved.'
+            }
+        }
+        elseif ($fixture.file -eq 'Prepared Reference Mage.txt') {
+            $fireballReferences = @($json.creature.spell_reference.levels | ForEach-Object { $_.spells } | Where-Object { $_.name -eq 'Fireball S' })
+            Assert-Count -Label 'Prepared duplicate Spell Reference' -Items $fireballReferences -Expected 1
+            if ($json.creature.special_abilities[-1].raw -match '(?m)^Spell Reference$') {
+                throw 'The final ordinary ability absorbed Spell Reference.'
+            }
+            if ($json.warnings -notcontains "Upper spell 'Detect Magic' has no matching Spell Reference entry.") {
+                throw 'Missing upper-spell warning was not emitted.'
+            }
+            if ($json.warnings -notcontains "Spell Reference entry 'Phantom Spell' has no matching upper prepared/known spell.") {
+                throw 'Unmatched Spell Reference warning was not emitted.'
+            }
+            if ($json.creature.spell_reference.levels[1].spells[0].body_paragraphs.Count -lt 3) {
+                throw 'Multi-paragraph Spell Reference body was not preserved.'
+            }
+        }
+        elseif ($fixture.file -eq 'Formatted Reference Mage.docx') {
+            Assert-Equal -Label 'DOCX untyped lower entry' -Actual $json.creature.ordinary_entries[1].name -Expected 'Familiar'
+            Assert-Equal -Label 'DOCX italic compact line' -Actual $json.creature.spell_reference.levels[0].spells[0].compact_rules -Expected 'Evocation [Fire]; 1 standard action; Long (600 ft.); 20-ft.-radius spread; instantaneous; Reflex half; yes'
+        }
     }
 
     & (Join-Path $WorkspaceRoot 'tests\roll20_mock_test.ps1') -JsonDirectory $psOutput -ImporterPath $roll20ImporterPath -NodePath $NodePath

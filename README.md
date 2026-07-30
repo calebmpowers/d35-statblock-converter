@@ -18,7 +18,9 @@ Python is retained only as a legacy recovery/comparison tool. Node.js 18 or late
 
 ## Canonical Format
 
-The supported Roll20 import format is `schema_version: 1` handout JSON. Use `Convert-D35StatBlock.ps1` when you want output intended for the current Roll20 API importer.
+The authoritative authoring format is `templates\D&D 3.5e Stat Block Template.docx`. Its bold lower-entry names, bold Spell Reference headings/spell names, and italic compact spell lines are meaningful input structure. Finished stat blocks do not need hidden tags or a separate conversion copy.
+
+The supported Roll20 import format remains `schema_version: 1` handout JSON. Version 1 now has backward-compatible optional fields for ordinary lower entries, the lower Skills entry, and Spell Reference. Use `Convert-D35StatBlock.ps1` when you want output intended for the current Roll20 API importer.
 
 Converted JSON is treated as local output and is not included in the public source repository.
 
@@ -39,7 +41,7 @@ The app supports:
 
 See `Quick Start.md` for the normal workflow.
 
-For reliable source formatting, start with `templates\Dungeon Magazine Stat Block Template.txt` and follow `Stat Block Authoring Guide.md`.
+For reliable source formatting, start with `templates\D&D 3.5e Stat Block Template.docx` and follow `Stat Block Authoring Guide.md`. The `.txt` template is a fallback mirror, not the authority.
 
 ## From a Raw Stat Block to a Roll20 Character and Token
 
@@ -51,13 +53,15 @@ Copy the creature's stat block from your source into a document. Keep the stat b
 
 ### 2. Put it into the supplied template
 
-Open `templates\Dungeon Magazine Stat Block Template.txt` and copy it into a new document. Move the information from the raw stat block into the matching template lines, then remove any line the creature does not use. Replace every `XXX`; do not leave placeholders behind.
+Open `templates\D&D 3.5e Stat Block Template.docx` and save a working copy. Move the information from the raw stat block into the matching template lines, then remove instructions and fields the creature does not use. Replace every `XXX`; do not leave placeholders behind.
 
 Keep the section order and labels such as `Init`, `AC`, `hp`, `Spd`, `Melee`, `Ranged`, `Abilities`, `Feats`, and `Skills`. This is what lets the converter recognize each part. The [Stat Block Authoring Guide](Stat%20Block%20Authoring%20Guide.md) explains spells, special abilities, and the most common formatting mistakes.
 
+Write stable baseline values in the upper block. Put feats, abilities, class/template features, item effects, and named mechanics in the continuous alphabetical lower series. Prepared/known casters add the structured `Spell Reference` after those entries.
+
 ### 3. Save a clean input file
 
-Save one creature per file as a UTF-8 `.txt` file or a normal `.docx` file. A plain-text file is the easiest choice. Put it in the `Stat Blocks` folder, or keep it anywhere you can browse to from the app.
+Save one creature per file as a normal `.docx`. UTF-8 `.txt` remains supported as a conservative fallback, but it cannot carry the authoritative bold/italic structure. Put the file in the `Stat Blocks` folder, or keep it anywhere you can browse to from the app.
 
 ### 4. Convert it
 
@@ -101,7 +105,9 @@ powershell -ExecutionPolicy Bypass -File .\Convert-D35StatBlock.ps1 -Path .\samp
 
 By default, the script writes output to `Converted JSON\<input-name>.dnd35.json`. The JSON is ready to paste into a Roll20 handout's GM Notes and uses `schema_version: 1` with `creature.header`, `creature.defense`, `creature.offense`, and `creature.statistics`.
 
-Skill context such as racial skill bonuses is emitted under `creature.statistics.skill_bonuses`; the Roll20 importer applies those bonuses as skill misc modifiers rather than ranks.
+Skill context such as racial skill bonuses is emitted under `creature.statistics.skill_bonuses`; the Roll20 importer applies only explicit safe modifiers. Parenthetical conditional totals and lower Skills rules are retained as notes and are not added to an already-final upper total.
+
+Complete lower rules are emitted under `creature.ordinary_entries`. `creature.lower_skills_entry` and `creature.spell_reference` remain distinct. Matched Spell Reference text drives the repeating spell macro/detail fields; the complete section, including unmatched entries, is also retained in the character's Other field.
 
 ### Batch conversion
 
@@ -135,7 +141,9 @@ The smoke test verifies:
 - PowerShell conversion of every fixture in `fixtures\statblocks`
 - Expected key fields from `tests\fixture_manifest.json`
 
-Current active fixtures:
+Current active fixtures include the legacy set plus focused current-format cases for baseline Power Attack, conditional skills, prepared and spontaneous Spell References, unmatched spells, multi-paragraph bodies, and DOCX bold/italic extraction.
+
+Legacy fixtures:
 
 - Advanced Ochre Jelly
 - Ashen Grave Swarm
@@ -182,7 +190,7 @@ To exercise the non-shipping legacy Python comparison converter, run `tests\lega
 
 ## Current Gaps
 
-- The restored Roll20 importer is versioned as `0.3.0` and is covered by local mock sandbox tests. It still needs occasional live Roll20 spot checks because Roll20's real character sheet workers are not available locally.
+- The Roll20 importer is covered by the local mock sandbox, including resulting sheet attributes, spell macros, and token actions. Roll20's real sheet workers and production API sandbox are not available locally, so a live-game spot check remains necessary before release.
 
 ## License and content
 

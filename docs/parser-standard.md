@@ -1,132 +1,74 @@
 # Parser Standard
 
-This document defines the intended source format for the D35 converter.
+`templates/D&D 3.5e Stat Block Template.docx` is the authoritative source format. The DOCX paragraph/run model is part of the contract.
 
-The source standard is based on `templates/Dungeon Magazine Stat Block Template.txt`, exported from the user's Google Docs template. Most fields are optional, but fields should appear in the order shown here when present.
+## Input model
 
-## Section Order
+DOCX extraction retains, per paragraph:
 
-### 1. Header
+- normalized visible text;
+- source paragraph number;
+- run text with bold and italic flags;
+- the consecutive leading-bold text;
+- whether the complete paragraph is bold or italic.
 
-Expected order:
+Upper parsing continues to use visible labels, so existing `.docx`, `.txt`, pasted text, and folder workflows remain compatible. Plain text uses paragraph boundaries, visible headings, typed/bracketed signatures, conservative untyped recognition, and continuation preservation.
 
-- `Character Name CR XX`
-- Creature race, templates, and class levels
-- Creature alignment, size, and type/subtype
-- Creature reference
-- `Init ...; Senses ...; Listen ..., Spot ...`
-- `Aura ...`
-- `Languages ...`
+## Parser states
 
-Current destination:
+1. **Upper block:** recognized labels populate header, defense, offense, spell-list, and statistics fields.
+2. **Ordinary lower entries:** after statistics, a DOCX paragraph with a leading bold entry name begins the alphabetical lower series. Bracketed, parenthetical, and untyped entries share one first-class collection. A `Skills` entry is also exposed separately.
+3. **Spell Reference:** an exact `Spell Reference` heading ends ordinary entries. Bold level headings and spell-name paragraphs, italic compact lines, and ordinary body paragraphs are parsed structurally.
+4. **Unrelated notes:** text not safely assignable to those structures remains in notes/warnings.
 
-- Name and CR go to `creature.name` and `creature.cr`.
-- Race/templates/classes go to `creature.header.ancestry`.
-- Alignment/size/type goes to `creature.header.alignment_size_type`.
-- Reference goes to `creature.header.source_reference`.
-- Initiative and senses stay in `creature.header.init_line`.
-- Aura lines stay in `creature.header.aura_lines`.
-- Languages stay in `creature.header.languages_line`.
+The Spell Reference boundary is recognized before ordinary ability continuation. A final `(Ex)`, `(Su)`, `(Sp)`, or `(Ps)` entry therefore cannot absorb spell headings or bodies.
 
-### 2. Defense
+## Intermediate and handout model
 
-Expected order:
+The project model and optional `schema_version: 1` handout additions keep these distinct:
 
-- `AC ..., touch ..., flat-footed ...; ...`
-- `hp ... (... HD); ...; DR .../...`
-- `Immune ...`
-- `Resist ... SR ...`
-- `Fort ..., Ref ..., Will ...`
-- `Weaknesses ...`
+- existing `creature.header`, `defense`, `offense`, and `statistics`;
+- `creature.ordinary_entries`;
+- `creature.lower_skills_entry`;
+- `creature.spell_reference`;
+- `creature.special_abilities` and `statistics.feat_details` compatibility views;
+- `creature.bio_notes`;
+- top-level `warnings`.
 
-Current destination:
+No schema bump was required. Older importers ignore the optional additions; the 0.4 importer consumes them.
 
-- AC line goes to `creature.defense.ac_line`.
-- HP and DR text goes to `creature.defense.hp_line`.
-- Immunities go to `creature.defense.immune_line`.
-- Resistances and SR go to `creature.defense.resist_line`.
-- Saves go to `creature.defense.fort_ref_will_line`.
-- Weaknesses go to `creature.defense.weaknesses_line`.
+Each ordinary entry contains `name`, `type`, `type_style`, `body`, and `raw`. Spell Reference contains levels and spell entries with `name`, `compact_rules`, `body_paragraphs`, `body`, `raw`, and match status.
 
-### 3. Offense
+## Spell matching and duplication
 
-Expected order:
+Only upper prepared/known spell records participate in reference matching. Match keys remove DC/prepared-count decorations and trailing domain/specialist markers while preserving the original names and marks in output.
 
-- `Spd ...`
-- `Melee ...`
-- `Ranged ...`
-- `Space ...; Reach ...`
-- `Base Atk ...; Grp ...`
-- `Atk Options ...`
-- `Special Actions ...`
-- `Combat Gear ...`
-- Spellcasting sections
-- Spell-like ability sections
-- Incorporated-stat-block notes marked with `*`
+Spell Reference never creates a second `offense.spell_sections` record. Repeated prepared names collapse to one repeating Roll20 spell while prepared counts are summed. Known spells import once. `Spellbook` entries remain unprepared. Unmatched upper and reference entries produce explicit warnings; unmatched reference text remains in `creature.spell_reference`.
 
-Current destination:
+Authoritative reference text overrides a bundled generic macro for the repeating spell macro. The compact line populates the spell detail field. The complete Spell Reference is also placed in Roll20's Other field, which preserves unmatched material without turning every spell into a token action.
 
-- Speed goes to `creature.offense.speed_line`.
-- Melee attacks go to `creature.offense.melee_lines`.
-- Ranged attacks go to `creature.offense.ranged_lines`.
-- Space/reach goes to `creature.offense.space_reach_line`.
-- Base attack/grapple goes to `creature.offense.base_attack_line`.
-- Attack options go to `creature.offense.attack_options_line`.
-- Special actions go to `creature.offense.special_actions_line`.
-- Combat gear is merged into `creature.statistics.possessions`.
-- Spell and spell-like sections go to `creature.offense.spell_sections`.
+## Roll20 destinations
 
-### 4. Statistics
+- bracketed ordinary entries: `feats` and `npcfeats`;
+- typed and untyped ordinary entries: `racialabilities`;
+- lower Skills rules: per-skill notes where safely parsed, plus the Other reference field;
+- Spell Reference: matched repeating spell macros/details and complete Other reference text;
+- unrelated notes: biography/mechanical split retained for legacy payloads.
 
-Expected order:
+Initiative and weapon attacks remain the only token actions.
 
-- `Abilities Str ..., Dex ..., Con ..., Int ..., Wis ..., Cha ...`
-- `SQ ...`
-- `Feats ...`
-- `Skills ...`
-- `Possessions combat gear, ...`
-- `Spellbook ...`
-- Incorporated ability-score notes marked with `*`
+## Baseline rules
 
-Current destination:
+The converter trusts upper numerical values. It does not reverse-audit, "correct," or reapply old printed adjustments. In particular:
 
-- Ability scores go to `creature.statistics.abilities_line`.
-- Special qualities go to `creature.statistics.sq_line`.
-- Feats go to `creature.statistics.feats`.
-- Skills go to `creature.statistics.skills`.
-- Parsed racial/conditional skill bonuses go to `creature.statistics.skill_bonuses`.
-- Possessions go to `creature.statistics.possessions`.
-- Spellbook entries go to `creature.offense.spell_sections` as unprepared spell entries.
+- Power Attack lower text never subtracts attack or adds damage;
+- temporary lower effects never overwrite AC, hp, saves, attacks, or skills;
+- stable continuous/permanent effects remain incorporated exactly as authored;
+- parenthetical conditional skill totals remain notes and are not added to the baseline total;
+- lower Skills text never double-counts an upper value.
 
-### 5. Special Abilities
+## Compatibility
 
-Expected format:
+Windows PowerShell 5.1 remains the shipping runtime. Existing upper labels, schema version 1, desktop app modes, unique filenames, diagnostic output, handout JSON, inline commands, legacy fixtures, and Roll20 mock imports remain supported.
 
-- `Special Ability Name (Sp/Su/Ex) Special ability description.`
-
-Current destination:
-
-- Special ability blocks go to `creature.special_abilities`.
-- These are used by the Roll20 importer for text sections and ability references.
-
-## Parser Contract
-
-- Separator lines made of underscores may appear between sections.
-- Blank lines may appear between sections.
-- Fields may be omitted.
-- Fields that appear should keep the template order.
-- Line prefixes are meaningful and should stay close to the template names.
-- Parenthetical details should be preserved unless the parser has an explicit field for them.
-- Asterisk notes are meaningful. They should help the parser avoid double-counting incorporated bonuses, then be preserved as notes when useful.
-- Token actions should be limited to weapon attacks and initiative for now.
-- Combat gear should be treated as possessions.
-- Spellbook spells should be added to the character sheet's spell list, but should not be marked prepared or used unless they also appear in prepared/used spell sections.
-
-## Open Mapping Questions
-
-These fields need user confirmation before we hard-code more precise Roll20 destinations:
-
-- Should `Aura` become only descriptive text, or should common aura mechanics create token actions?
-- Should `Weaknesses` map only to an info field, or should common weaknesses have sheet-level attributes?
-- Should `Domains/Prohibited schools` populate a dedicated spellcasting notes field?
-- Which incorporated-bonus notes should alter parser math automatically, and which should remain descriptive only?
+Legacy plain-text casters without a Spell Reference remain accepted without a new missing-section warning. Authoritative DOCX casters require the section; partial references in either format report unmatched entries.
