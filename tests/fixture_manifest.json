@@ -1,5 +1,29 @@
 ﻿[
     {
+        "file":  "Expanded Feat Monster.txt",
+        "expected":  {
+                         "name":  "Expanded Feat Monster",
+                         "cr":  "4",
+                         "alignment_size_type":  "LG Medium humanoid (human)",
+                         "ac_line":  "AC 18, touch 11, flat-footed 17 (+1 Dex, +7 armor)",
+                         "hp_line":  "hp 34 (4d10+8)",
+                         "fort_ref_will_line":  "Fort +6, Ref +2, Will +2",
+                         "speed_line":  "Spd 30 ft.",
+                         "abilities_line":  "Abilities Str 16, Dex 12, Con 14, Int 10, Wis 12, Cha 8",
+                         "feat_count":  3,
+                         "feat_detail_count":  3,
+                         "skill_count":  5,
+                         "skill_detail_count":  3,
+                         "possession_count":  0,
+                         "melee_line_count":  1,
+                         "ranged_line_count":  0,
+                         "spell_section_count":  1,
+                         "spell_entry_count":  1,
+                         "special_ability_count":  3,
+                         "warning_count":  0
+                     }
+    },
+    {
         "file":  "Advanced Ochre Jelly.txt",
         "expected":  {
                          "name":  "Advanced Ochre Jelly",
@@ -61,7 +85,7 @@
                          "ranged_line_count":  1,
                          "spell_section_count":  1,
                          "spell_entry_count":  22,
-                         "special_ability_count":  3,
+                         "special_ability_count":  5,
                          "warning_count":  1
                      }
     },
@@ -306,5 +330,134 @@
                          "special_ability_count":  0,
                          "warning_count":  1
                      }
+    },
+    {
+        "file": "Baseline Power Brute.txt",
+        "expected": {
+            "name": "Baseline Power Brute",
+            "cr": "6",
+            "alignment_size_type": "CE Medium humanoid (orc)",
+            "ac_line": "AC 19, touch 11, flat-footed 18 (+1 Dex, +6 armor, +2 deflection)",
+            "hp_line": "hp 57 (6d12+18)",
+            "fort_ref_will_line": "Fort +8, Ref +3, Will +4",
+            "speed_line": "Spd 30 ft.",
+            "abilities_line": "Abilities Str 20, Dex 12, Con 16, Int 8, Wis 10, Cha 6",
+            "feat_count": 3,
+            "feat_detail_count": 2,
+            "skill_count": 4,
+            "skill_detail_count": 0,
+            "possession_count": 3,
+            "melee_line_count": 1,
+            "ranged_line_count": 0,
+            "spell_section_count": 0,
+            "spell_entry_count": 0,
+            "special_ability_count": 3,
+            "ordinary_entry_count": 5,
+            "spell_reference_count": 0,
+            "warning_count": 0
+        }
+    },
+    {
+        "file": "Conditional Skill Scout.txt",
+        "expected": {
+            "name": "Conditional Skill Scout",
+            "cr": "3",
+            "alignment_size_type": "NG Medium humanoid (elf)",
+            "ac_line": "AC 17, touch 13, flat-footed 14 (+3 Dex, +4 armor)",
+            "hp_line": "hp 22 (3d8+6)",
+            "fort_ref_will_line": "Fort +5, Ref +6, Will +2",
+            "speed_line": "Spd 30 ft.",
+            "abilities_line": "Abilities Str 14, Dex 16, Con 14, Int 10, Wis 12, Cha 8",
+            "feat_count": 2,
+            "feat_detail_count": 1,
+            "skill_count": 5,
+            "skill_detail_count": 0,
+            "possession_count": 3,
+            "melee_line_count": 1,
+            "ranged_line_count": 1,
+            "spell_section_count": 0,
+            "spell_entry_count": 0,
+            "special_ability_count": 1,
+            "ordinary_entry_count": 2,
+            "spell_reference_count": 0,
+            "has_lower_skills_entry": true,
+            "warning_count": 0
+        }
+    },
+    {
+        "file": "Prepared Reference Mage.txt",
+        "expected": {
+            "name": "Prepared Reference Mage",
+            "cr": "7",
+            "alignment_size_type": "LN Medium humanoid (human)",
+            "ac_line": "AC 16, touch 12, flat-footed 14 (+2 Dex, +4 permanent force effect)",
+            "hp_line": "hp 31 (7d4+14)",
+            "fort_ref_will_line": "Fort +4, Ref +4, Will +6",
+            "speed_line": "Spd 30 ft.",
+            "abilities_line": "Abilities Str 8, Dex 14, Con 14, Int 18, Wis 12, Cha 10",
+            "feat_count": 2,
+            "feat_detail_count": 1,
+            "skill_count": 3,
+            "skill_detail_count": 0,
+            "possession_count": 3,
+            "melee_line_count": 1,
+            "ranged_line_count": 1,
+            "spell_section_count": 2,
+            "spell_entry_count": 18,
+            "special_ability_count": 2,
+            "ordinary_entry_count": 3,
+            "spell_reference_count": 8,
+            "warning_count": 2
+        }
+    },
+    {
+        "file": "Spontaneous Reference Adept.txt",
+        "expected": {
+            "name": "Spontaneous Reference Adept",
+            "cr": "4",
+            "alignment_size_type": "CN Medium humanoid (human)",
+            "ac_line": "AC 12, touch 11, flat-footed 11 (+1 Dex, +1 natural)",
+            "hp_line": "hp 18 (4d4+8)",
+            "fort_ref_will_line": "Fort +3, Ref +2, Will +4",
+            "speed_line": "Spd 30 ft.",
+            "abilities_line": "Abilities Str 8, Dex 12, Con 14, Int 10, Wis 10, Cha 18",
+            "feat_count": 2,
+            "skill_count": 3,
+            "possession_count": 2,
+            "melee_line_count": 1,
+            "ranged_line_count": 0,
+            "spell_section_count": 1,
+            "spell_entry_count": 5,
+            "special_ability_count": 1,
+            "ordinary_entry_count": 1,
+            "spell_reference_count": 5,
+            "warning_count": 0
+        }
+    },
+    {
+        "file": "Formatted Reference Mage.docx",
+        "expected": {
+            "name": "Formatted Reference Mage",
+            "cr": "5",
+            "alignment_size_type": "LN Medium humanoid (human)",
+            "ac_line": "AC 15, touch 12, flat-footed 13 (+2 Dex, +3 armor)",
+            "hp_line": "hp 24 (5d4+10)",
+            "fort_ref_will_line": "Fort +3, Ref +3, Will +5",
+            "speed_line": "Spd 30 ft.",
+            "abilities_line": "Abilities Str 8, Dex 14, Con 14, Int 18, Wis 12, Cha 10",
+            "feat_count": 2,
+            "feat_detail_count": 1,
+            "skill_count": 2,
+            "skill_detail_count": 0,
+            "possession_count": 2,
+            "melee_line_count": 1,
+            "ranged_line_count": 0,
+            "spell_section_count": 1,
+            "spell_entry_count": 3,
+            "special_ability_count": 2,
+            "ordinary_entry_count": 3,
+            "spell_reference_count": 3,
+            "warning_count": 0
+        }
     }
 ]

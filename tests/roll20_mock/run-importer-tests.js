@@ -125,6 +125,14 @@ function spellPrepAttrs(attrs) {
         .map((name) => attrs[name].current);
 }
 
+function spellFieldValues(attrs, fieldName) {
+    const pattern = new RegExp('^repeating_spells\\d+_.+_' + fieldName + '\\d+$');
+    return Object.keys(attrs)
+        .filter((name) => pattern.test(name))
+        .map((name) => String(attrs[name].current || ''))
+        .filter(Boolean);
+}
+
 function expectedSpellCount(payload) {
     const sections = payload.creature && payload.creature.offense && payload.creature.offense.spell_sections || [];
     return sections.reduce((total, section) => {
@@ -192,6 +200,7 @@ function assertImport(world, payload, filePath) {
     const expectedCr = payload.creature && payload.creature.cr;
     const defense = payload.creature && payload.creature.defense || {};
     const offense = payload.creature && payload.creature.offense || {};
+    const statistics = payload.creature && payload.creature.statistics || {};
     const imported = importPayload(world, payload, sourceName);
     const character = imported.character;
     const attrs = attrsFor(world, character.id);
@@ -236,6 +245,117 @@ function assertImport(world, payload, filePath) {
             spellPrepAttrs(attrs).some((value) => String(value) === '0'),
             sourceName + ': spellbook spells should include unprepared entries'
         );
+    }
+
+    const featDetails = statistics.feat_details || [];
+    if (featDetails.length > 0) {
+        const featSection = String(attrCurrent(attrs, 'feats') || '');
+        const npcFeatSection = String(attrCurrent(attrs, 'npcfeats') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        featDetails.forEach((feat) => {
+            assert.ok(
+                featSection.includes(feat.raw),
+                sourceName + ': expanded feat text missing from feats: ' + feat.name
+            );
+            assert.ok(
+                npcFeatSection.includes(feat.raw),
+                sourceName + ': expanded feat text missing from npcfeats: ' + feat.name
+            );
+            assert.ok(
+                !racialAbilities.includes(feat.raw),
+                sourceName + ': expanded feat text should not be in racialabilities: ' + feat.name
+            );
+        });
+    }
+
+    if (sourceName === 'Expanded Feat Monster.dnd35.json') {
+        assert.strictEqual(
+            Number(attrCurrent(attrs, 'diplomacymiscmod')),
+            2,
+            sourceName + ': Diplomacy synergy should populate the skill misc modifier'
+        );
+        assert.ok(
+            String(attrCurrent(attrs, 'spellcraftnote') || '').includes('deciphering scrolls'),
+            sourceName + ': conditional Spellcraft synergy should populate the skill note'
+        );
+        assert.ok(
+            String(attrCurrent(attrs, 'racialabilities') || '').includes('Spells The expanded feat monster'),
+            sourceName + ': expanded spellcasting rules should populate racialabilities'
+        );
+    }
+
+    if (sourceName === 'Baseline Power Brute.dnd35.json') {
+        assert.strictEqual(
+            Number(attrCurrent(attrs, 'npcattack1focus')),
+            0,
+            sourceName + ': Power Attack must not be imported as a fixed attack penalty'
+        );
+        assert.ok(
+            tokenActions.some((ability) => String(ability.get('action') || '').includes('powerAttackAttackBonus')),
+            sourceName + ': melee token action should retain the sheet dynamic Power Attack control'
+        );
+        assert.ok(
+            String(attrCurrent(attrs, 'feats') || '').includes('No fixed value is included'),
+            sourceName + ': complete Power Attack rules text missing from feats'
+        );
+    }
+
+    if (sourceName === 'Conditional Skill Scout.dnd35.json') {
+        assert.strictEqual(
+            Number(attrCurrent(attrs, 'movesilentmiscmod')),
+            1,
+            sourceName + ': conditional +4 must not be added to the baseline skill modifier'
+        );
+        assert.ok(
+            String(attrCurrent(attrs, 'movesilentnote') || '').includes('forested areas'),
+            sourceName + ': parenthetical conditional skill total missing from skill notes'
+        );
+        assert.ok(
+            String(attrCurrent(attrs, 'other') || '').includes('does not replace or add'),
+            sourceName + ': lower Skills rules text missing from the sheet reference area'
+        );
+    }
+
+    if (sourceName === 'Prepared Reference Mage.dnd35.json') {
+        assert.strictEqual(
+            spellNameAttrs(attrs).filter((name) => name === 'Fireball S').length,
+            1,
+            sourceName + ': duplicate prepared spell should collapse to one repeating spell'
+        );
+        assert.ok(
+            spellPrepAttrs(attrs).some((value) => String(value) === '2'),
+            sourceName + ': duplicate prepared count was not retained'
+        );
+        assert.ok(
+            spellFieldValues(attrs, 'spellmacro').some((value) => value.includes('7d6 points of fire damage')),
+            sourceName + ': authoritative Spell Reference body missing from the spell macro'
+        );
+        assert.ok(
+            spellFieldValues(attrs, 'spellduration').some((value) => value.includes('Long (680 ft.)')),
+            sourceName + ': compact Spell Reference line missing from repeating spell details'
+        );
+        assert.ok(
+            String(attrCurrent(attrs, 'other') || '').includes('Phantom Spell'),
+            sourceName + ': unmatched Spell Reference entry was not preserved'
+        );
+        assert.ok(
+            String(attrCurrent(attrs, 'racialabilities') || '').includes('Last Defense'),
+            sourceName + ': final ordinary lower entry missing from rules text'
+        );
+        assert.ok(
+            !String(attrCurrent(attrs, 'racialabilities') || '').includes('3rd-Level Spells'),
+            sourceName + ': Spell Reference was appended to the final ordinary ability'
+        );
+    }
+
+    if (sourceName === 'Spontaneous Reference Adept.dnd35.json') {
+        ['Mirror Image', 'Magic Missile', 'Silent Image', 'Detect Magic', 'Light'].forEach((name) => {
+            assert.strictEqual(
+                spellNameAttrs(attrs).filter((value) => value === name).length,
+                1,
+                sourceName + ': known spell should be imported once: ' + name
+            );
+        });
     }
 }
 

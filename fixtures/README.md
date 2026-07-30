@@ -6,6 +6,8 @@ This folder contains raw stat block inputs used by the regression tests.
 
 Active fixtures live in `statblocks` and are exercised by `tests/smoke_test.ps1`.
 
+Focused current-template fixtures cover baseline Power Attack, conditional upper skills and lower Skills rules, prepared and spontaneous Spell References, unmatched spell warnings, multi-paragraph bodies, and a representative DOCX with bold entry names and italic compact spell lines. `tests\New-DocxFixture.py` regenerates the DOCX for maintainers; end users do not need Python.
+
 - `Advanced Ochre Jelly.txt`
 - `Ashen Grave Swarm.txt`
 - `Avatar of the Black Spinner.txt`

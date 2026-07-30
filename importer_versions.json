@@ -1,19 +1,20 @@
 {
   "project": "D35 Statblock Importer",
-  "release_version": "0.3.2",
+  "release_version": "0.4.0",
   "workspace_root": ".",
   "versions": [
     {
       "id": "current_chat_version",
       "name": "D35StatblockImporter",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "source": "user_pasted_chat_script",
       "file": "D35_Statblock_Importer.js",
       "notes": [
         "Cleaned and current importer version restored from pasted chat script",
         "Adds more robust normalization and parsing helpers",
         "Expands equipment, skill, spell, and weapon handling",
-        "Duplicate helper definitions from recovery were removed in the 0.3.0 cleanup pass"
+        "Duplicate helper definitions from recovery were removed in the 0.3.0 cleanup pass",
+        "0.4.0 imports first-class ordinary lower entries and authoritative Spell Reference text"
       ]
     }
   ],

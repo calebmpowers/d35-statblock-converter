@@ -2,7 +2,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'D35 Statblock Importer';
-    var VERSION = '0.3.0';
+    var VERSION = '0.4.0';
     var COMMAND = '!d35import';
     var COMMAND_ALIASES = ['!d35import', '!d35importer', '!d35'];
     var PING_COMMAND = '!d35ping';
@@ -801,7 +801,7 @@
             if (!cleaned) {
                 return;
             }
-            if (/^[A-Z][^.()]*\((Ex|Sp|Su)\)/.test(cleaned) || /^Skills\b/i.test(cleaned)) {
+            if (/^[A-Z][^.()]*\((Ex|Sp|Su)\)/.test(cleaned) || /^(?:Skills|Spells)\b/i.test(cleaned)) {
                 mechanicalParts.push(cleaned);
             } else {
                 bioParts.push(cleaned);
@@ -860,7 +860,7 @@
         }
     }
 
-    function extractSituationalSkillNotes(text) {
+    function extractSituationalSkillNotes(text, skillDetails) {
         var notes = {};
         String(text || '').split(/\n\s*\n/).forEach(function (paragraph) {
             var cleaned = trim(paragraph);
@@ -881,6 +881,25 @@
                 }
                 appendUniqueNote(notes, descriptor, '(' + (bonus >= 0 ? '+' : '') + bonus + ' ' + condition + ')');
             }
+        });
+        asArray(skillDetails).forEach(function (detail) {
+            var descriptor = parseSkillDescriptor(detail && detail.skill || '');
+            var condition = normalizeSituationalSkillCondition(detail && detail.condition || '');
+            var modifierText = asArray(detail && detail.modifiers).map(function (modifier) {
+                var bonus = safeNumber(modifier && modifier.bonus);
+                var source = trim(modifier && modifier.source || '');
+                var reason = trim(modifier && modifier.reason || '');
+                if (bonus === null) {
+                    return '';
+                }
+                return (bonus >= 0 ? '+' : '') + bonus +
+                    (source ? ' from ' + source : '') +
+                    (reason ? ' for ' + reason : '');
+            }).filter(Boolean).join(', ');
+            if (!descriptor || !condition || !modifierText) {
+                return;
+            }
+            appendUniqueNote(notes, descriptor, '(' + modifierText + ' ' + condition + ')');
         });
         return notes;
     }
@@ -1109,6 +1128,20 @@
             '{{notes=' + escapeMacroText(notes.join(' ')) + ' }}';
     }
 
+    function buildReferenceSpellMacro(characterName, sectionEntry) {
+        var spell = sectionEntry.spell || {};
+        var reference = spell.reference || {};
+        var notes = [
+            trim(reference.compact_rules || ''),
+            trim(reference.body || '')
+        ].filter(Boolean).join(' ');
+        return '&{template:DnD35StdRoll} ' +
+            '{{spellflag=true}} ' +
+            '{{name=' + escapeMacroText(characterName) + ' }} ' +
+            '{{subtags=casts ' + escapeMacroText(spell.name || reference.name || 'Spell') + '.}} ' +
+            '{{notes=' + escapeMacroText(notes || reference.raw || spell.raw || '') + ' }}';
+    }
+
     function rewriteSpellConcentrationSection(macro) {
         var compcheckMatch = macro.match(/\{\{compcheck=([\s\S]*?)\}\}/i);
         var queryMatch;
@@ -1130,6 +1163,10 @@
         var macro = normalizeText(spell.macro_text || '');
         var casterLevel = parseCasterLevel(sectionEntry.casterLevel);
         var dc = extractSpellDc(spell);
+
+        if (spell.reference && (spell.reference.compact_rules || spell.reference.body || spell.reference.raw)) {
+            return buildReferenceSpellMacro('@{character_name}', sectionEntry);
+        }
 
         if (!macro) {
             return buildFallbackSpellMacro('@{character_name}', sectionEntry);
@@ -1735,6 +1772,7 @@
         var bioParts = [];
         var knownRacialAbilityNames = buildKnownRacialAbilityNameSet(creature);
         var seenClassAbilityNames = {};
+        var ordinaryEntries = asArray(creature.ordinary_entries);
 
         function pushClassAbilitySummary(value) {
             var filtered = filterDuplicateAbilitySummaries(value, knownRacialAbilityNames, seenClassAbilityNames);
@@ -1754,11 +1792,24 @@
                 pushClassAbilitySummary(note);
             }
         });
-        asArray(creature.special_abilities).forEach(function (ability) {
-            if (ability && ability.raw) {
-                racialAbilityParts.push(ability.raw);
-            }
-        });
+        if (ordinaryEntries.length) {
+            ordinaryEntries.forEach(function (entry) {
+                if (!entry || !entry.raw || entry.type_style === 'bracketed') {
+                    return;
+                }
+                if (normalizeLookupText(entry.name) === 'skills') {
+                    otherParts.push(entry.raw);
+                    return;
+                }
+                racialAbilityParts.push(entry.raw);
+            });
+        } else {
+            asArray(creature.special_abilities).forEach(function (ability) {
+                if (ability && ability.raw) {
+                    racialAbilityParts.push(ability.raw);
+                }
+            });
+        }
         if (extra.mechanical) {
             racialAbilityParts.push(extra.mechanical);
         }
@@ -1794,6 +1845,23 @@
         asArray(offense.other_lines).forEach(function (line) {
             otherParts.push(line);
         });
+        if (creature.lower_skills_entry && creature.lower_skills_entry.raw) {
+            otherParts.push(creature.lower_skills_entry.raw);
+        }
+        if (creature.spell_reference && asArray(creature.spell_reference.levels).length) {
+            var spellReferenceParts = [creature.spell_reference.heading || 'Spell Reference'];
+            asArray(creature.spell_reference.levels).forEach(function (level) {
+                spellReferenceParts.push(level.label || (String(level.level) + '-Level Spells'));
+                asArray(level.spells).forEach(function (spell) {
+                    spellReferenceParts.push(spell.raw || [
+                        spell.name,
+                        spell.compact_rules,
+                        spell.body
+                    ].filter(Boolean).join('\n'));
+                });
+            });
+            otherParts.push(spellReferenceParts.join('\n\n'));
+        }
 
         if (normalizedHeader.sourceReference) {
             bioParts.push('Source: ' + normalizedHeader.sourceReference);
@@ -2410,7 +2478,7 @@
         var bab = parseBaseAttackLine(offense.base_attack_line || '');
         var spaceReach = parseSpaceReachLine(offense.space_reach_line || '');
         var skillBonuses = extractSkillBonuses(stats.skills || []);
-        var skillContextNotes = extractSituationalSkillNotes(creature.bio_notes || '');
+        var skillContextNotes = extractSituationalSkillNotes(creature.bio_notes || '', stats.skill_details || []);
         var weapons = buildWeaponList(offense, stats.feats || []);
         var spellEntries = buildSpellEntries(offense.spell_sections || [], warnings, identity);
         var maneuvers = asArray(offense.maneuvers || creature.maneuvers);
@@ -2449,6 +2517,7 @@
             skills: stats.skills || [],
             explicitSkillBonuses: buildExplicitSkillBonusMap(stats.skill_bonuses || []),
             feats: stats.feats || [],
+            featDetails: stats.feat_details || creature.feat_details || [],
             possessions: possessions,
             languages: parseLanguages(header.languages_line || ''),
             weapons: weapons,
@@ -2468,6 +2537,20 @@
         model.acBreakdown = analyzeAcBreakdown(model);
         model.acInfoText = buildAcInfoText(model);
         return model;
+    }
+
+    function buildFeatSectionText(feats, featDetails) {
+        var parts = [];
+        var featList = asArray(feats).filter(Boolean).join(', ');
+        if (featList) {
+            parts.push(featList);
+        }
+        asArray(featDetails).forEach(function (feat) {
+            if (feat && feat.raw) {
+                parts.push(feat.raw);
+            }
+        });
+        return parts.join('\n\n');
     }
 
     function validateModel(model) {
@@ -2690,6 +2773,7 @@
             var preparedCount = entry.preparedCount ? String(entry.preparedCount) : '';
             var perDayValue = extractSpellPerDayValue(entry);
             var detailText = extractSpellDetailText(spell);
+            var referenceCompact = trim(spell.reference && spell.reference.compact_rules || '');
             var dc = extractSpellDc(spell);
 
             if (casterLevel !== null) {
@@ -2717,7 +2801,7 @@
                 attrs['repeating_spells16_' + rowId + '_spelldc16'] = dc !== null ? dc : '';
                 attrs['repeating_spells16_' + rowId + '_spellname16'] = spell.name || '';
                 attrs['repeating_spells16_' + rowId + '_spelltype16'] = trim(entry.sectionType + (level !== null ? ' ' + level : ''));
-                attrs['repeating_spells16_' + rowId + '_spellduration16'] = detailText;
+                attrs['repeating_spells16_' + rowId + '_spellduration16'] = referenceCompact || detailText;
                 attrs['repeating_spells16_' + rowId + '_spellrange16'] = entry.headerExtras || '';
                 attrs['repeating_spells16_' + rowId + '_spellmacro16'] = adaptSpellMacro(entry);
                 attrs['repeating_spells16_' + rowId + '_spellst16'] = dc !== null ? 'DC ' + dc : '';
@@ -2733,8 +2817,8 @@
             if (dc !== null) {
                 attrs['repeating_spells' + suffix + '_' + rowId + '_spellst' + suffix] = 'DC ' + dc;
             }
-            if (detailText) {
-                attrs['repeating_spells' + suffix + '_' + rowId + '_spellduration' + suffix] = detailText;
+            if (referenceCompact || detailText) {
+                attrs['repeating_spells' + suffix + '_' + rowId + '_spellduration' + suffix] = referenceCompact || detailText;
             }
         });
 
@@ -2852,7 +2936,7 @@
             languages: splitAndDisplayList(model.languages || ''),
             racialabilities: model.textBundles.racialAbilities || '',
             classabilities: model.textBundles.classAbilities || '',
-            feats: (model.feats || []).join(', '),
+            feats: buildFeatSectionText(model.feats, model.featDetails),
             other: model.textBundles.other || '',
             otheritems: '',
             otherinfo: importedItems,
@@ -2915,7 +2999,7 @@
             npccha: model.abilities.cha || '',
             'npccha-mod': abilityMod(model.abilities.cha || 10),
             npcskills: (model.skills || []).map(function (skill) { return toDisplayCase(skill); }).join(', '),
-            npcfeats: (model.feats || []).join(', '),
+            npcfeats: buildFeatSectionText(model.feats, model.featDetails),
             npccr: model.cr || '',
             npctreasure: (model.possessions || []).map(function (item) { return toDisplayCase(item); }).join(', '),
             npcdescr: model.textBundles.bio || '',

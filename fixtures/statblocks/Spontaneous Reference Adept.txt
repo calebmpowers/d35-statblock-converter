@@ -1,0 +1,46 @@
+Spontaneous Reference Adept CR 4
+human sorcerer 4
+CN Medium humanoid (human)
+Synthetic regression fixture
+Init +1; Senses normal; Listen +0, Spot +0
+AC 12, touch 11, flat-footed 11 (+1 Dex, +1 natural)
+hp 18 (4d4+8)
+Fort +3, Ref +2, Will +4
+Spd 30 ft.
+Melee dagger +1 (1d4-1/19-20)
+Space 5 ft.; Reach 5 ft.
+Base Atk +2; Grp +1
+Abilities Str 8, Dex 12, Con 14, Int 10, Wis 10, Cha 18
+SQ familiar
+Feats Eschew Materials, Spell Focus (illusion)
+Skills Bluff +11, Concentration +9, Spellcraft +7
+Possessions dagger, spell component pouch
+Sorcerer Spells Known (CL 4th):
+2nd (3/day)-mirror image
+1st (6/day)-magic missile, silent image
+0 (6/day)-detect magic, light
+Familiar The creature has the standard sorcerer familiar class feature.
+Spell Reference
+2nd-Level Spells
+Mirror Image
+Illusion (Figment); 1 standard action; Personal; caster; 4 minutes; none; no
+The spell creates 1d4+1 illusory duplicates.
+(Player's Handbook, page 254.)
+1st-Level Spells
+Magic Missile
+Evocation [Force]; 1 standard action; Medium (140 ft.); up to two creatures; instantaneous; none; yes
+The spell creates two missiles that each deal 1d4+1 points of force damage.
+(Player's Handbook, page 251.)
+Silent Image
+Illusion (Figment); 1 standard action; Long (560 ft.); visual figment; concentration; Will disbelief; no
+The spell creates a visual illusion.
+(Player's Handbook, page 279.)
+0-Level Spells
+Detect Magic
+Divination; 1 standard action; 60 ft.; cone-shaped emanation; concentration, up to 4 minutes; none; no
+The caster detects magical auras.
+(Player's Handbook, page 219.)
+Light
+Evocation [Light]; 1 standard action; touch; object touched; 40 minutes; none; no
+The object sheds light.
+(Player's Handbook, page 248.)

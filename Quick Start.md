@@ -12,9 +12,8 @@ The app opens a local window with three ways to convert:
 
 ## Recommended Workflow
 
-1. Write or collect a Dungeon Magazine-style D&D 3.5 stat block in Google Docs.
-   - For new stat blocks, copy `templates\Dungeon Magazine Stat Block Template.txt` and follow `Stat Block Authoring Guide.md`.
-2. Export it as plain text, or copy the text directly.
+1. Open `templates\D&D 3.5e Stat Block Template.docx`, save a working copy, and follow `Stat Block Authoring Guide.md`.
+2. Save the completed DOCX. Plain text and pasted text remain conservative fallbacks.
 3. Open `Launch D35 Converter.bat`.
 4. Use the `Paste` tab or the `File` tab.
 5. Leave output set to `Handout JSON`.

@@ -1,0 +1,21 @@
+Conditional Skill Scout CR 3
+elf ranger 3
+NG Medium humanoid (elf)
+Synthetic regression fixture
+Init +3; Senses low-light vision; Listen +6, Spot +6
+AC 17, touch 13, flat-footed 14 (+3 Dex, +4 armor)
+hp 22 (3d8+6)
+Fort +5, Ref +6, Will +2
+Spd 30 ft.
+Melee longsword +5 (1d8+2/19-20)
+Ranged longbow +6 (1d8/x3)
+Space 5 ft.; Reach 5 ft.
+Base Atk +3; Grp +5
+Abilities Str 14, Dex 16, Con 14, Int 10, Wis 12, Cha 8
+SQ wild empathy
+Feats Point Blank Shot, Track
+Skills Hide +9, Listen +6, Move Silently +9 (+13 in forested areas), Spot +6, Survival +7
+Possessions longsword, longbow, masterwork chain shirt
+Skills Move Silently gains a +4 racial bonus in forested areas; the parenthetical upper total is conditional and does not replace or add to the +9 baseline.
+Track [General] The creature can use Survival to follow tracks.
+Wild Empathy The ranger can improve the attitude of an animal as described by the class feature.
