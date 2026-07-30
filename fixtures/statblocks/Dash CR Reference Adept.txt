@@ -1,0 +1,27 @@
+Dash CR Reference Adept CR -
+CN Medium humanoid (human)
+Synthetic regression fixture
+Init +1; Senses normal
+AC 12, touch 11, flat-footed 11
+hp 18 (4d4+8)
+Fort +3, Ref +2, Will +4
+Spd 30 ft.
+Melee dagger +1 (1d4-1/19-20)
+Space 5 ft.; Reach 5 ft.
+Base Atk +2; Grp +1
+Abilities Str 8, Dex 12, Con 14, Int 10, Wis 10, Cha 18
+Feats Eschew Materials
+Skills Concentration +9
+Possessions dagger
+Sorcerer Spells Known (CL 4th):
+1st (6/day)-bull's strength
+0 (6/day)-detect magic
+Spell Reference
+1st-Level Spells
+Bull’s Strength
+Transmutation; 1 standard action; touch; creature touched; 4 minutes; Will negates (harmless); yes (harmless)
+The subject gains a +4 enhancement bonus to Strength.
+0-Level Spells
+Detect Magic
+Divination; 1 standard action; 60 ft.; cone-shaped emanation; concentration, up to 4 minutes; none; no
+The caster detects magical auras.

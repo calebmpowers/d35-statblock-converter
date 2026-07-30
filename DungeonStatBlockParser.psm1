@@ -901,7 +901,7 @@ function Parse-Header {
         Remainder = ''
     }
 
-    if ($Line -match '^(?<name>.+?)\s+CR\s+(?<cr>\d+(?:/\d+)?)(?<rest>.*)$') {
+    if ($Line -match '^(?<name>.+?)\s+CR\s+(?<cr>\d+(?:/\d+)?|[-—])(?<rest>.*)$') {
         $result.Name = (ConvertTo-PlainText $Matches.name)
         $result.CR = (ConvertTo-PlainText $Matches.cr)
         $result.Remainder = (ConvertTo-PlainText $Matches.rest)
@@ -1676,6 +1676,8 @@ function ConvertTo-ReferenceMatchKey {
     $clean = $clean -replace '\(\s*DC\s+\d+\s*\)', ''
     $clean = $clean -replace '\(\s*\d+\s*\)$', ''
     $clean = $clean -replace '\s+(?:D|S|\[D\]|\[S\]|\*)$', ''
+    $clean = $clean -replace "'", ''
+    $clean = $clean.Replace([string][char]0x2019, '')
     $clean = $clean -replace '[^A-Za-z0-9]+', ' '
     return $clean.Trim().ToLowerInvariant()
 }
@@ -1833,7 +1835,7 @@ function Parse-SpellReferenceRecords {
         $text = ConvertTo-PlainText $record.Text
         if (-not $text) { continue }
 
-        if ($text -match '^(?<level>\d+)(?:st|nd|rd|th)-Level Spells$') {
+        if ($text -match '^(?<level>\d+)(?:st|nd|rd|th)?-Level Spells$') {
             . $completeReferenceSpell
             $currentLevel = [pscustomobject][ordered]@{
                 Level = [int]$Matches.level

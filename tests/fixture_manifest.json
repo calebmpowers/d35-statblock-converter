@@ -459,5 +459,29 @@
             "spell_reference_count": 3,
             "warning_count": 0
         }
+    },
+    {
+        "file": "Dash CR Reference Adept.txt",
+        "expected": {
+            "name": "Dash CR Reference Adept",
+            "cr": "-",
+            "alignment_size_type": "CN Medium humanoid (human)",
+            "ac_line": "AC 12, touch 11, flat-footed 11",
+            "hp_line": "hp 18 (4d4+8)",
+            "fort_ref_will_line": "Fort +3, Ref +2, Will +4",
+            "speed_line": "Spd 30 ft.",
+            "abilities_line": "Abilities Str 8, Dex 12, Con 14, Int 10, Wis 10, Cha 18",
+            "feat_count": 1,
+            "skill_count": 1,
+            "possession_count": 1,
+            "melee_line_count": 1,
+            "ranged_line_count": 0,
+            "spell_section_count": 1,
+            "spell_entry_count": 2,
+            "special_ability_count": 0,
+            "ordinary_entry_count": 0,
+            "spell_reference_count": 2,
+            "warning_count": 0
+        }
     }
 ]
