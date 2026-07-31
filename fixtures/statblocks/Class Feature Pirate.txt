@@ -11,11 +11,13 @@ Spd 30 ft.
 Melee scimitar +4 (1d6+2/18-20)
 Base Atk +1; Grp +3
 Atk Options sneak attack +1d6
+Combat Gear potion of blur
 Abilities Str 15, Dex 12, Con 14, Int 8, Wis 13, Cha 10
 SQ trapfinding
 Feats Improved Toughness (+1 hp/HD)
 Skills Climb +5
-Possessions scimitar
+Possessions combat gear, scimitar
+Blur The pirate carries a potion of blur that grants concealment for 3 minutes.
 Improved Toughness [General] The pirate gains 1 hit point per Hit Die.
 Sneak Attack (Ex) The pirate deals an extra 1d6 points of damage when it flanks an opponent or when the opponent is denied its Dexterity bonus to AC.
 Trapfinding (Ex) The pirate can use Search to locate traps with a DC higher than 20 and can use Disable Device to disarm magic traps.

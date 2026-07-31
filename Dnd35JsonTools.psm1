@@ -593,7 +593,11 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
         }
         "{0} {1}{2}" -f $skill.Name, $skill.Bonus, $(if ($skillNote) { " ($skillNote)" } else { '' })
     }
-    $possessions = @((Split-Dnd35List -Text $Project.Creature.Possessions) + (Split-Dnd35List -Text $Project.Creature.CombatGear) | Where-Object { $_ })
+    $possessions = @(
+        (Split-Dnd35List -Text $Project.Creature.Possessions) +
+        (Split-Dnd35List -Text $Project.Creature.CombatGear) |
+        Where-Object { $_ -and $_ -notmatch '^combat gear$' }
+    )
     $combatGear = Split-Dnd35List -Text $Project.Creature.CombatGear
     $classes = foreach ($class in @($Project.Creature.Identity.Classes)) {
         [pscustomobject][ordered]@{

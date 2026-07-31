@@ -409,6 +409,7 @@ function assertImport(world, payload, filePath) {
         const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
         const featSection = String(attrCurrent(attrs, 'feats') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
         assert.ok(
             classAbilities.includes('Sneak Attack (Ex) The pirate deals an extra 1d6'),
             sourceName + ': full Sneak Attack entry missing from class abilities'
@@ -438,6 +439,18 @@ function assertImport(world, payload, filePath) {
         assert.ok(
             featSection.includes('Improved Toughness [General] The pirate gains 1 hit point per Hit Die.'),
             sourceName + ': full annotated feat entry missing'
+        );
+        assert.ok(
+            !racialAbilities.includes('Blur The pirate carries a potion'),
+            sourceName + ': combat-gear rules should not be placed in racial abilities'
+        );
+        assert.ok(
+            other.includes('Blur The pirate carries a potion'),
+            sourceName + ': combat-gear rules should be preserved in the Other reference field'
+        );
+        assert.ok(
+            !(statistics.possessions || []).some((item) => /^combat gear$/i.test(String(item))),
+            sourceName + ': the combat gear reference marker should not become an item'
         );
     }
 }

@@ -1814,6 +1814,22 @@
         });
     }
 
+    function isEquipmentReferenceEntry(entry, offense, stats) {
+        var entryKey = normalizeLookupText(entry && entry.name);
+        var itemNames = []
+            .concat(asArray(stats && stats.possessions))
+            .concat(splitTopLevel(stripPrefix(offense && offense.combat_gear_line || '', 'Combat Gear\\s+')));
+        if (!entryKey) {
+            return false;
+        }
+        return itemNames.some(function (itemName) {
+            var itemKey = normalizeLookupText(itemName);
+            return itemKey === entryKey ||
+                (itemKey.length > entryKey.length &&
+                    itemKey.slice(-(entryKey.length + 1)) === ' ' + entryKey);
+        });
+    }
+
     function shouldKeepHpInlineNoteInClassAbilities(note) {
         return !/^DR\b/i.test(trim(normalizeText(note || '')));
     }
@@ -1876,6 +1892,10 @@
                     return;
                 }
                 if (normalizeLookupText(entry.name) === 'skills') {
+                    otherParts.push(entry.raw);
+                    return;
+                }
+                if (isEquipmentReferenceEntry(entry, offense, stats)) {
                     otherParts.push(entry.raw);
                     return;
                 }
