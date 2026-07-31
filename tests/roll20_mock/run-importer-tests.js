@@ -260,6 +260,17 @@ function assertImport(world, payload, filePath) {
         const featSection = String(attrCurrent(attrs, 'feats') || '');
         const npcFeatSection = String(attrCurrent(attrs, 'npcfeats') || '');
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const consolidatedFeatList = (statistics.feats || []).join(', ');
+        assert.notStrictEqual(
+            featSection.split(/\n\n/)[0],
+            consolidatedFeatList,
+            sourceName + ': consolidated feat list should not precede the individual feat entries'
+        );
+        assert.notStrictEqual(
+            npcFeatSection.split(/\n\n/)[0],
+            consolidatedFeatList,
+            sourceName + ': consolidated NPC feat list should not precede the individual feat entries'
+        );
         featDetails.forEach((feat) => {
             assert.ok(
                 featSection.includes(feat.raw),
@@ -380,6 +391,15 @@ function assertImport(world, payload, filePath) {
         assert.ok(
             !racialAbilities.includes('Sneak Attack') && !racialAbilities.includes('Trapfinding'),
             sourceName + ': rogue class features should not be duplicated in racial abilities'
+        );
+        assert.strictEqual(
+            (classAbilities.match(/Sneak Attack/gi) || []).length,
+            1,
+            sourceName + ': Sneak Attack should appear exactly once in class abilities'
+        );
+        assert.ok(
+            !classAbilities.includes('Sneak Attack +1d6'),
+            sourceName + ': abbreviated Sneak Attack summary should be suppressed'
         );
     }
 }

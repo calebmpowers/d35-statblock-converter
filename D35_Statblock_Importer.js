@@ -1821,7 +1821,10 @@
     function filterDuplicateAbilitySummaries(value, knownAbilityNames, seenSummaryNames) {
         return splitAbilitySummaryText(value).filter(function (part) {
             var key = normalizeAbilitySummaryName(part);
-            if (key && knownAbilityNames[key]) {
+            var duplicatesFullEntry = key && Object.keys(knownAbilityNames).some(function (knownKey) {
+                return key === knownKey || key.indexOf(knownKey + ' ') === 0;
+            });
+            if (duplicatesFullEntry) {
                 return false;
             }
             if (key && seenSummaryNames[key]) {
@@ -2620,12 +2623,32 @@
 
     function buildFeatSectionText(feats, featDetails) {
         var parts = [];
-        var featList = asArray(feats).filter(Boolean).join(', ');
-        if (featList) {
-            parts.push(featList);
-        }
+        var detailsByName = {};
+        var usedDetails = [];
+
         asArray(featDetails).forEach(function (feat) {
-            if (feat && feat.raw) {
+            var key = normalizeLookupText(feat && feat.name);
+            if (!key || !feat || !feat.raw) {
+                return;
+            }
+            detailsByName[key] = detailsByName[key] || [];
+            detailsByName[key].push(feat);
+        });
+
+        asArray(feats).filter(Boolean).forEach(function (featName) {
+            var key = normalizeLookupText(featName);
+            var matches = detailsByName[key] || [];
+            var detail = matches.shift();
+            if (detail) {
+                usedDetails.push(detail);
+                parts.push(detail.raw);
+            } else {
+                parts.push(featName);
+            }
+        });
+
+        asArray(featDetails).forEach(function (feat) {
+            if (feat && feat.raw && usedDetails.indexOf(feat) === -1) {
                 parts.push(feat.raw);
             }
         });
