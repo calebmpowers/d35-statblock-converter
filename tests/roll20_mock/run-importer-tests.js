@@ -475,6 +475,18 @@ function assertImport(world, payload, filePath) {
             !(statistics.possessions || []).some((item) => /^combat gear$/i.test(String(item))),
             sourceName + ': the combat gear reference marker should not become an item'
         );
+        assert.ok(
+            featSection.includes('Two-Weapon Fighting The pirate reduces its two-weapon attack penalties'),
+            sourceName + ': an untyped lower entry matching the feat list should supply the full feat text'
+        );
+        assert.ok(
+            !featSection.includes('Acrobatic Backstab'),
+            sourceName + ': a Movement Skill Trick should not be imported as a feat'
+        );
+        assert.ok(
+            other.includes('Acrobatic Backstab [Movement Skill Trick]'),
+            sourceName + ': the full skill-trick entry should be preserved in Other'
+        );
     }
 }
 

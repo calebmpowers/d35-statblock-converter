@@ -14,10 +14,13 @@ Atk Options sneak attack +1d6
 Combat Gear potion of blur
 Abilities Str 15, Dex 12, Con 14, Int 8, Wis 13, Cha 10
 SQ trapfinding
-Feats Improved Toughness (+1 hp/HD)
+Feats Improved Toughness (+1 hp/HD), Two-Weapon Fighting
 Skills Climb +5
-Possessions combat gear, scimitar
+Skill Tricks Acrobatic Backstab
+Possessions combat gear, scimitar, bracelet worth 1,000 gp
+Acrobatic Backstab [Movement Skill Trick] Once per encounter, a successful Tumble check can leave the target flat-footed against the pirate's next melee attack.
 Blur The pirate carries a potion of blur that grants concealment for 3 minutes.
 Improved Toughness [General] The pirate gains 1 hit point per Hit Die.
 Sneak Attack (Ex) The pirate deals an extra 1d6 points of damage when it flanks an opponent or when the opponent is denied its Dexterity bonus to AC.
 Trapfinding (Ex) The pirate can use Search to locate traps with a DC higher than 20 and can use Disable Device to disarm magic traps.
+Two-Weapon Fighting The pirate reduces its two-weapon attack penalties while using a light off-hand weapon.

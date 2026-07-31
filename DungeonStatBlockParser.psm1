@@ -19,6 +19,19 @@ $script:AlignmentCodes = @(
     'Usually', 'Always', 'Often'
 )
 
+$script:FeatCategories = @(
+    'General', 'Fighter', 'Metamagic', 'Item Creation', 'Epic', 'Psionic',
+    'Racial', 'Tactical', 'Divine', 'Wild', 'Vile', 'Exalted', 'Reserve',
+    'Ambush', 'Luck', 'Heritage', 'Draconic', 'Incarnum', 'Style', 'Ceremony'
+)
+
+function Test-IsFeatCategory {
+    param([string]$Category)
+
+    $clean = (ConvertTo-PlainText $Category)
+    return @($script:FeatCategories | Where-Object { $_ -ieq $clean }).Count -gt 0
+}
+
 $script:ReferenceStarters = @(
     'Expanded Psionics Handbook',
     'Dungeon Master''s Guide II',
@@ -2014,6 +2027,7 @@ function ConvertTo-ProjectModel {
             Skills = ''
             ExpandedSkillDetails = @()
             SkillEntries = @()
+            SkillTricks = ''
             Possessions = ''
             Spellbook = ''
             Notes = @()
@@ -2045,7 +2059,8 @@ function ConvertTo-ProjectModel {
         $line = $paragraphs[$lineIndex]
 
         $lowerSkillsStartsHere = $line -match '^Skills\s+\D' -and @($model.Creature.SkillEntries).Count -gt 0
-        if ($lowerSkillsStartsHere -or (Test-IsLowerEntryStart -Record $paragraphRecords[$lineIndex] -StatisticsSeen ($null -ne $abilityScores))) {
+        $isKnownUpperField = $line -match '^(?:Skill Tricks|Possessions|Combat Gear)\b'
+        if ($lowerSkillsStartsHere -or (-not $isKnownUpperField -and (Test-IsLowerEntryStart -Record $paragraphRecords[$lineIndex] -StatisticsSeen ($null -ne $abilityScores)))) {
             $lowerStartIndex = $lineIndex
             break
         }
@@ -2206,15 +2221,21 @@ function ConvertTo-ProjectModel {
                 }
                 break
             }
+            '^Skill Tricks\b' { $model.Creature.SkillTricks = ($line -replace '^Skill Tricks\s+', ''); break }
             '^Possessions\b' { $model.Creature.Possessions = ($line -replace '^Possessions\s+', ''); break }
             '^Spellbook\b' { $model.Creature.Spellbook = ($line -replace '^Spellbook\s+', ''); break }
             default {
                 if ($line -match '^(?<name>.+?)\s+\[(?<category>[^\]]+)\]\s+(?<body>.+)$') {
-                    $model.Creature.ExpandedFeats += [pscustomobject]@{
-                        Name = (ConvertTo-PlainText $Matches.name)
-                        Category = (ConvertTo-PlainText $Matches.category)
-                        Body = (ConvertTo-PlainText $Matches.body)
-                        Raw = (ConvertTo-PlainText $line)
+                    if (Test-IsFeatCategory -Category $Matches.category) {
+                        $model.Creature.ExpandedFeats += [pscustomobject]@{
+                            Name = (ConvertTo-PlainText $Matches.name)
+                            Category = (ConvertTo-PlainText $Matches.category)
+                            Body = (ConvertTo-PlainText $Matches.body)
+                            Raw = (ConvertTo-PlainText $line)
+                        }
+                    }
+                    else {
+                        $model.Creature.Notes += $line
                     }
                 }
                 elseif ($line -match '^(?<name>[^()]+?)\s+\((?<type>Ex|Su|Sp|Ps)\)\s*(?<body>.*)$') {
@@ -2256,11 +2277,15 @@ function ConvertTo-ProjectModel {
             $model.Creature.OrdinaryEntries = @($allLowerEntries | Where-Object { $_.Name -ne 'Skills' })
             $model.Creature.Notes += @($lowerResult.Notes)
             foreach ($entry in $allLowerEntries) {
+                $entryKey = ConvertTo-ReferenceMatchKey -Name $entry.Name
+                $isListedFeat = @($model.Creature.Feats -split '\s*,\s*' | Where-Object {
+                    (ConvertTo-ReferenceMatchKey -Name $_) -eq $entryKey
+                }).Count -gt 0
                 if ($entry.Name -eq 'Skills') {
                     $model.Creature.LowerSkillsEntry = $entry
                     $model.Creature.ExpandedSkillDetails += $entry.Raw
                 }
-                elseif ($entry.TypeStyle -eq 'bracketed') {
+                elseif (($entry.TypeStyle -eq 'bracketed' -and (Test-IsFeatCategory -Category $entry.Type)) -or $isListedFeat) {
                     $model.Creature.ExpandedFeats += [pscustomobject][ordered]@{
                         Name = $entry.Name
                         Category = $entry.Type
@@ -2268,7 +2293,7 @@ function ConvertTo-ProjectModel {
                         Raw = $entry.Raw
                     }
                 }
-                else {
+                elseif ($entry.TypeStyle -ne 'bracketed') {
                     $model.Creature.SpecialAbilities += [pscustomobject][ordered]@{
                         Name = $entry.Name
                         Type = $entry.Type

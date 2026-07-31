@@ -1826,6 +1826,36 @@
         });
     }
 
+    var FEAT_CATEGORY_NAMES = {
+        general: true,
+        fighter: true,
+        metamagic: true,
+        'item creation': true,
+        epic: true,
+        psionic: true,
+        racial: true,
+        tactical: true,
+        divine: true,
+        wild: true,
+        vile: true,
+        exalted: true,
+        reserve: true,
+        ambush: true,
+        luck: true,
+        heritage: true,
+        draconic: true,
+        incarnum: true,
+        style: true,
+        ceremony: true
+    };
+
+    function isListedFeatEntry(entry, stats) {
+        var entryKey = normalizeFeatMatchKey(entry && entry.name);
+        return entryKey && asArray(stats && stats.feats).some(function (featName) {
+            return normalizeFeatMatchKey(featName) === entryKey;
+        });
+    }
+
     function isEquipmentReferenceEntry(entry, offense, stats) {
         var entryKey = normalizeLookupText(entry && entry.name);
         var itemNames = []
@@ -1901,7 +1931,16 @@
         });
         if (ordinaryEntries.length) {
             ordinaryEntries.forEach(function (entry) {
-                if (!entry || !entry.raw || entry.type_style === 'bracketed') {
+                if (!entry || !entry.raw) {
+                    return;
+                }
+                if (isListedFeatEntry(entry, stats)) {
+                    return;
+                }
+                if (entry.type_style === 'bracketed') {
+                    if (!FEAT_CATEGORY_NAMES[normalizeLookupText(entry.type)]) {
+                        otherParts.push(entry.raw);
+                    }
                     return;
                 }
                 if (normalizeLookupText(entry.name) === 'skills') {

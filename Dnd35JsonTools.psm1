@@ -28,8 +28,10 @@ function Split-Dnd35List {
     $result = New-Object System.Collections.Generic.List[string]
     $buffer = New-Object System.Text.StringBuilder
     $depth = 0
+    $thousandsMarker = [char]0xE000
+    $workingText = [regex]::Replace($Text, '(?<=\d),(?=\d{3}(?:\D|$))', [string]$thousandsMarker)
 
-    foreach ($character in $Text.ToCharArray()) {
+    foreach ($character in $workingText.ToCharArray()) {
         if ($character -eq '(') {
             $depth++
         }
@@ -38,7 +40,7 @@ function Split-Dnd35List {
         }
 
         if ($character -eq ',' -and $depth -eq 0) {
-            $part = $buffer.ToString().Trim()
+            $part = $buffer.ToString().Replace([string]$thousandsMarker, ',').Trim()
             if ($part) {
                 $result.Add($part)
             }
@@ -49,7 +51,7 @@ function Split-Dnd35List {
         [void]$buffer.Append($character)
     }
 
-    $tail = $buffer.ToString().Trim()
+    $tail = $buffer.ToString().Replace([string]$thousandsMarker, ',').Trim()
     if ($tail) {
         $result.Add($tail)
     }
@@ -357,8 +359,13 @@ function Get-Roll20SpecialAbilities {
     param([pscustomobject]$Project)
 
     if (@($Project.Creature.OrdinaryEntries).Count -gt 0) {
+        $expandedFeatNames = @($Project.Creature.ExpandedFeats | ForEach-Object { $_.Name })
         return @(
-            foreach ($entry in @($Project.Creature.OrdinaryEntries | Where-Object { $_.TypeStyle -ne 'bracketed' -and $_.Name -ne 'Skills' })) {
+            foreach ($entry in @($Project.Creature.OrdinaryEntries | Where-Object {
+                $_.TypeStyle -ne 'bracketed' -and
+                $_.Name -ne 'Skills' -and
+                $expandedFeatNames -notcontains $_.Name
+            })) {
                 [pscustomobject][ordered]@{
                     name = $entry.Name
                     type = $entry.Type
@@ -671,6 +678,7 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
                 skills = @($skills | ForEach-Object { $_ })
                 skill_details = @($skillDetails | ForEach-Object { $_ })
                 skill_bonuses = @(Get-Roll20SkillBonuses -Project $Project)
+                skill_tricks = @((Split-Dnd35List -Text $Project.Creature.SkillTricks) | ForEach-Object { $_ })
                 possessions = @($possessions | ForEach-Object { $_ })
                 spellbook_line = $(if ($Project.Creature.Spellbook) { "Spellbook $($Project.Creature.Spellbook)" } else { '' })
             }
