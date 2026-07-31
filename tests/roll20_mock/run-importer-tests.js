@@ -243,6 +243,24 @@ function assertImport(world, payload, filePath) {
         );
     });
 
+    const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
+        return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
+    });
+    if (fullSneakAttack && (payload.creature.header.classes || []).some((entry) => {
+        return /^(rogue|dread pirate)$/i.test(String(entry && entry.name || ''));
+    })) {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        assert.strictEqual(
+            classAbilities.split(/\n\n/).filter((entry) => /^Sneak Attack\b/i.test(entry)).length,
+            1,
+            sourceName + ': Sneak Attack should have exactly one class-ability entry'
+        );
+        assert.ok(
+            classAbilities.includes(fullSneakAttack.raw),
+            sourceName + ': full Sneak Attack text missing from class abilities'
+        );
+    }
+
     const expectedSpells = expectedSpellCount(payload);
     if (expectedSpells > 0 || hasSpellbook(payload)) {
         assert.ok(spellNameAttrs(attrs).length > 0, sourceName + ': expected spell attributes');
@@ -270,6 +288,16 @@ function assertImport(world, payload, filePath) {
             npcFeatSection.split(/\n\n/)[0],
             consolidatedFeatList,
             sourceName + ': consolidated NPC feat list should not precede the individual feat entries'
+        );
+        assert.strictEqual(
+            featSection.split(/\n\n/).filter(Boolean).length,
+            (statistics.feats || []).length,
+            sourceName + ': feats should render as exactly one ordered entry per listed feat'
+        );
+        assert.strictEqual(
+            npcFeatSection.split(/\n\n/).filter(Boolean).length,
+            (statistics.feats || []).length,
+            sourceName + ': NPC feats should render as exactly one ordered entry per listed feat'
         );
         featDetails.forEach((feat) => {
             assert.ok(
@@ -380,6 +408,7 @@ function assertImport(world, payload, filePath) {
     if (sourceName === 'Class Feature Pirate.dnd35.json') {
         const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const featSection = String(attrCurrent(attrs, 'feats') || '');
         assert.ok(
             classAbilities.includes('Sneak Attack (Ex) The pirate deals an extra 1d6'),
             sourceName + ': full Sneak Attack entry missing from class abilities'
@@ -393,13 +422,22 @@ function assertImport(world, payload, filePath) {
             sourceName + ': rogue class features should not be duplicated in racial abilities'
         );
         assert.strictEqual(
-            (classAbilities.match(/Sneak Attack/gi) || []).length,
+            classAbilities.split(/\n\n/).filter((entry) => /^Sneak Attack\b/i.test(entry)).length,
             1,
-            sourceName + ': Sneak Attack should appear exactly once in class abilities'
+            sourceName + ': Sneak Attack should have exactly one class-ability entry'
         );
         assert.ok(
             !classAbilities.includes('Sneak Attack +1d6'),
             sourceName + ': abbreviated Sneak Attack summary should be suppressed'
+        );
+        assert.strictEqual(
+            (featSection.match(/Improved Toughness/gi) || []).length,
+            1,
+            sourceName + ': annotated feat name should match its full entry without duplication'
+        );
+        assert.ok(
+            featSection.includes('Improved Toughness [General] The pirate gains 1 hit point per Hit Die.'),
+            sourceName + ': full annotated feat entry missing'
         );
     }
 }

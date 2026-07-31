@@ -2621,13 +2621,19 @@
         return model;
     }
 
+    function normalizeFeatMatchKey(value) {
+        return normalizeLookupText(
+            trim(normalizeText(value || '')).replace(/\s*\((?=[^)]*[+\-\d])[^)]*\)\s*$/, '')
+        );
+    }
+
     function buildFeatSectionText(feats, featDetails) {
         var parts = [];
         var detailsByName = {};
         var usedDetails = [];
 
         asArray(featDetails).forEach(function (feat) {
-            var key = normalizeLookupText(feat && feat.name);
+            var key = normalizeFeatMatchKey(feat && feat.name);
             if (!key || !feat || !feat.raw) {
                 return;
             }
@@ -2636,7 +2642,7 @@
         });
 
         asArray(feats).filter(Boolean).forEach(function (featName) {
-            var key = normalizeLookupText(featName);
+            var key = normalizeFeatMatchKey(featName);
             var matches = detailsByName[key] || [];
             var detail = matches.shift();
             if (detail) {
