@@ -487,6 +487,16 @@ function assertImport(world, payload, filePath) {
             other.includes('Acrobatic Backstab [Movement Skill Trick]'),
             sourceName + ': the full skill-trick entry should be preserved in Other'
         );
+        ['Cloak of Resistance', 'Keen'].forEach((entryName) => {
+            assert.ok(
+                !racialAbilities.includes(entryName),
+                sourceName + ': owned-item rule should not be placed in racial abilities: ' + entryName
+            );
+            assert.ok(
+                other.includes(entryName),
+                sourceName + ': owned-item rule should be preserved in Other: ' + entryName
+            );
+        });
     }
 }
 

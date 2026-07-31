@@ -1867,6 +1867,7 @@
         return itemNames.some(function (itemName) {
             var itemKey = normalizeLookupText(itemName);
             return itemKey === entryKey ||
+                (' ' + itemKey + ' ').indexOf(' ' + entryKey + ' ') !== -1 ||
                 (itemKey.length > entryKey.length &&
                     itemKey.slice(-(entryKey.length + 1)) === ' ' + entryKey) ||
                 (/^masterwork\b/.test(entryKey) && /\bmasterwork\b/.test(itemKey));
@@ -1947,15 +1948,15 @@
                     otherParts.push(entry.raw);
                     return;
                 }
+                if (isClassFeatureEntry(entry, identity)) {
+                    classAbilityParts.push(entry.raw);
+                    return;
+                }
                 if (isEquipmentReferenceEntry(entry, offense, stats)) {
                     otherParts.push(entry.raw);
                     return;
                 }
-                if (isClassFeatureEntry(entry, identity)) {
-                    classAbilityParts.push(entry.raw);
-                } else {
-                    racialAbilityParts.push(entry.raw);
-                }
+                racialAbilityParts.push(entry.raw);
             });
         } else {
             asArray(creature.special_abilities).forEach(function (ability) {
