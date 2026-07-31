@@ -261,6 +261,29 @@ function assertImport(world, payload, filePath) {
         );
     }
 
+    const fullRage = (payload.creature.ordinary_entries || []).find((entry) => {
+        return entry && String(entry.name || '').toLowerCase() === 'rage' && entry.raw;
+    });
+    if (fullRage && (payload.creature.header.classes || []).some((entry) => {
+        return /^barbarian$/i.test(String(entry && entry.name || ''));
+    })) {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        assert.strictEqual(
+            classAbilities.split(/\n\n/).filter((entry) => /^Rage\b/i.test(entry)).length,
+            1,
+            sourceName + ': Rage should have exactly one class-ability entry'
+        );
+        assert.ok(
+            classAbilities.includes(fullRage.raw),
+            sourceName + ': full Rage text missing from class abilities'
+        );
+        assert.ok(
+            !racialAbilities.includes(fullRage.raw),
+            sourceName + ': full Rage text should not appear in racial abilities'
+        );
+    }
+
     const expectedSpells = expectedSpellCount(payload);
     if (expectedSpells > 0 || hasSpellbook(payload)) {
         assert.ok(spellNameAttrs(attrs).length > 0, sourceName + ': expected spell attributes');

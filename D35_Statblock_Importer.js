@@ -1753,6 +1753,18 @@
     }
 
     var CLASS_FEATURE_NAMES_BY_CLASS = {
+        barbarian: {
+            'damage reduction': true,
+            'fast movement': true,
+            'greater rage': true,
+            'improved uncanny dodge': true,
+            'indomitable will': true,
+            'mighty rage': true,
+            rage: true,
+            'tireless rage': true,
+            'trap sense': true,
+            'uncanny dodge': true
+        },
         cleric: {
             'destruction domain': true,
             'fire domain': true,
@@ -1826,7 +1838,8 @@
             var itemKey = normalizeLookupText(itemName);
             return itemKey === entryKey ||
                 (itemKey.length > entryKey.length &&
-                    itemKey.slice(-(entryKey.length + 1)) === ' ' + entryKey);
+                    itemKey.slice(-(entryKey.length + 1)) === ' ' + entryKey) ||
+                (/^masterwork\b/.test(entryKey) && /\bmasterwork\b/.test(itemKey));
         });
     }
 
