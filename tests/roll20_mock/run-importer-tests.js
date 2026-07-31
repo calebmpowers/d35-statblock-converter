@@ -230,10 +230,18 @@ function assertImport(world, payload, filePath) {
         assert.ok(tokenActions.length > 0, sourceName + ': expected at least one token action for weapon attacks');
     }
 
-    assert.ok(
-        tokenActions.some((ability) => /^initiative$/i.test(ability.get('name'))),
-        sourceName + ': missing Initiative token action'
+    assert.strictEqual(
+        tokenActions.filter((ability) => /^initiative$/i.test(ability.get('name'))).length,
+        0,
+        sourceName + ': importer should rely on the sheet Initiative action instead of creating a duplicate'
     );
+
+    ['racialabilities', 'classabilities', 'other'].forEach((fieldName) => {
+        assert.ok(
+            !String(attrCurrent(attrs, fieldName) || '').includes('[object Object]'),
+            sourceName + ': empty structured value leaked into ' + fieldName
+        );
+    });
 
     const expectedSpells = expectedSpellCount(payload);
     if (expectedSpells > 0 || hasSpellbook(payload)) {
@@ -356,6 +364,23 @@ function assertImport(world, payload, filePath) {
                 sourceName + ': known spell should be imported once: ' + name
             );
         });
+    }
+
+    if (sourceName === 'Class Feature Pirate.dnd35.json') {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        assert.ok(
+            classAbilities.includes('Sneak Attack (Ex) The pirate deals an extra 1d6'),
+            sourceName + ': full Sneak Attack entry missing from class abilities'
+        );
+        assert.ok(
+            classAbilities.includes('Trapfinding (Ex) The pirate can use Search'),
+            sourceName + ': full Trapfinding entry missing from class abilities'
+        );
+        assert.ok(
+            !racialAbilities.includes('Sneak Attack') && !racialAbilities.includes('Trapfinding'),
+            sourceName + ': rogue class features should not be duplicated in racial abilities'
+        );
     }
 }
 

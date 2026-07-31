@@ -1,12 +1,12 @@
 {
   "project": "D35 Statblock Importer",
-  "release_version": "0.4.0",
+  "release_version": "0.4.1",
   "workspace_root": ".",
   "versions": [
     {
       "id": "current_chat_version",
       "name": "D35StatblockImporter",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "source": "user_pasted_chat_script",
       "file": "D35_Statblock_Importer.js",
       "notes": [
@@ -14,7 +14,8 @@
         "Adds more robust normalization and parsing helpers",
         "Expands equipment, skill, spell, and weapon handling",
         "Duplicate helper definitions from recovery were removed in the 0.3.0 cleanup pass",
-        "0.4.0 imports first-class ordinary lower entries and authoritative Spell Reference text"
+        "0.4.0 imports first-class ordinary lower entries and authoritative Spell Reference text",
+        "0.4.1 removes the duplicate Initiative token action, ignores empty structured values, and routes known class features to Class Abilities"
       ]
     }
   ],

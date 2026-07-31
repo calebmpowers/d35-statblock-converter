@@ -4,7 +4,7 @@ This folder contains the Roll20 API companion script for the local D35 converter
 
 Use `D35_Statblock_Importer.js` in Roll20's API Scripts page.
 
-Current bundled version: `0.4.0`.
+Current bundled version: `0.4.1`.
 
 Basic import workflow:
 

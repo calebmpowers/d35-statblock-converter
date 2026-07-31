@@ -2,7 +2,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'D35 Statblock Importer';
-    var VERSION = '0.4.0';
+    var VERSION = '0.4.1';
     var COMMAND = '!d35import';
     var COMMAND_ALIASES = ['!d35import', '!d35importer', '!d35'];
     var PING_COMMAND = '!d35ping';
@@ -274,6 +274,9 @@
 
     function asArray(value) {
         if (value === null || value === undefined || value === '') {
+            return [];
+        }
+        if (!Array.isArray(value) && typeof value === 'object' && Object.keys(value).length === 0) {
             return [];
         }
         return Array.isArray(value) ? value : [value];
@@ -1220,7 +1223,8 @@
             sizeMod: alignmentInfo.sizeMod || 0,
             typeText: alignmentInfo.typeText,
             gender: genderDescriptor.gender,
-            descriptor: genderDescriptor.descriptor
+            descriptor: genderDescriptor.descriptor,
+            classes: asArray(header.classes)
         };
     }
 
@@ -1271,13 +1275,22 @@
     function parseIdentity(normalizedHeader, defaultRaceName) {
         var descriptor = trim(normalizedHeader.descriptor || '');
         var parsed = parseClassLevels(descriptor);
+        var explicitClasses = asArray(normalizedHeader.classes).map(function (entry) {
+            return {
+                name: toDisplayCase(entry && entry.name || ''),
+                level: safeNumber(entry && entry.level) || 0
+            };
+        }).filter(function (entry) {
+            return entry.name && entry.level > 0;
+        });
         var raceText = parsed.raceText || descriptor || trim(defaultRaceName || '') || normalizedHeader.typeText || '';
-        if (parsed.classes.length) {
+        var classes = explicitClasses.length ? explicitClasses : parsed.classes;
+        if (classes.length) {
             raceText = stripAgeQualifiers(raceText);
         }
         return {
             race: toDisplayCase(raceText || trim(defaultRaceName || '') || normalizedHeader.typeText || ''),
-            classes: parsed.classes
+            classes: classes
         };
     }
 
@@ -1739,6 +1752,68 @@
         return known;
     }
 
+    var CLASS_FEATURE_NAMES_BY_CLASS = {
+        cleric: {
+            'destruction domain': true,
+            'fire domain': true,
+            'rebuke undead': true,
+            'spontaneous casting': true,
+            'turn undead': true
+        },
+        druid: {
+            'animal companion': true,
+            'nature sense': true,
+            'resist nature s lure': true,
+            spells: true,
+            'spontaneous casting': true,
+            'trackless step': true,
+            'wild empathy': true,
+            'wild shape': true,
+            'woodland stride': true
+        },
+        'dread pirate': {
+            'fearsome reputation': true,
+            seamanship: true,
+            'sneak attack': true
+        },
+        monk: {
+            evasion: true,
+            'flurry of blows': true
+        },
+        ranger: {
+            'favored enemy': true,
+            'wild empathy': true
+        },
+        rogue: {
+            evasion: true,
+            'improved uncanny dodge': true,
+            'sneak attack': true,
+            'trap sense': true,
+            trapfinding: true,
+            'uncanny dodge': true
+        },
+        sorcerer: {
+            familiar: true,
+            'sorcerer spellcasting': true
+        },
+        tempest: {
+            ambidexterity: true,
+            'tempest defense': true
+        }
+    };
+
+    function isClassFeatureEntry(entry, identity) {
+        var entryKey = normalizeAbilitySummaryName(entry && entry.name);
+        if (!entryKey) {
+            return false;
+        }
+        return asArray(identity && identity.classes).some(function (classEntry) {
+            var classKey = normalizeLookupText(classEntry && classEntry.name);
+            return CLASS_FEATURE_NAMES_BY_CLASS[classKey] &&
+                CLASS_FEATURE_NAMES_BY_CLASS[classKey][entryKey] === true;
+        });
+    }
+
     function shouldKeepHpInlineNoteInClassAbilities(note) {
         return !/^DR\b/i.test(trim(normalizeText(note || '')));
     }
@@ -1761,7 +1836,7 @@
         }).join(', ');
     }
 
-    function buildTextBundles(creature, normalizedHeader) {
+    function buildTextBundles(creature, normalizedHeader, identity) {
         var defense = creature.defense || {};
         var offense = creature.offense || {};
         var stats = creature.statistics || {};
@@ -1801,7 +1876,11 @@
                     otherParts.push(entry.raw);
                     return;
                 }
-                racialAbilityParts.push(entry.raw);
+                if (isClassFeatureEntry(entry, identity)) {
+                    classAbilityParts.push(entry.raw);
+                } else {
+                    racialAbilityParts.push(entry.raw);
+                }
             });
         } else {
             asArray(creature.special_abilities).forEach(function (ability) {
@@ -2482,7 +2561,7 @@
         var weapons = buildWeaponList(offense, stats.feats || []);
         var spellEntries = buildSpellEntries(offense.spell_sections || [], warnings, identity);
         var maneuvers = asArray(offense.maneuvers || creature.maneuvers);
-        var textBundles = buildTextBundles(creature, normalizedHeader);
+        var textBundles = buildTextBundles(creature, normalizedHeader, identity);
         var possessions = []
             .concat(stats.possessions || [])
             .concat(offense.combat_gear_line ? [stripPrefix(offense.combat_gear_line, 'Combat Gear\\s+')] : []);
@@ -2628,13 +2707,6 @@
             action: action,
             istokenaction: tokenAction ? true : false
         });
-    }
-
-    function buildInitiativeTokenActionMacro() {
-        return '&{template:DnD35Initiative} ' +
-            '{{name=@{selected|token_name}}} ' +
-            '{{check=Initiative:}} ' +
-            '{{checkroll=[[ 1d20 + [[ @{selected|init} ]] + ( [[ (@{selected|init}) ]] /100) &{tracker} ]] }}';
     }
 
     function buildAcSlotAttrs(model) {
@@ -3022,8 +3094,6 @@
         bulkSetAttrs(characterId, buildManeuverAttrs(model));
         setAttr(characterId, 'hitpoints', importedHp, importedHp);
         setAttr(characterId, 'npchitpoints', importedHp, importedHp);
-        createAbility(characterId, 'Initiative', buildInitiativeTokenActionMacro(), true);
-
         for (i = 0; i < Math.min(model.weapons.length, MAX_PC_WEAPONS); i += 1) {
             bulkSetAttrs(characterId, buildPcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
         }

@@ -1,0 +1,20 @@
+Class Feature Pirate CR 2
+Human rogue 1/fighter 1
+CE Medium humanoid
+Synthetic regression fixture
+Init +1; Senses normal
+Languages Common
+AC 15, touch 11, flat-footed 14
+hp 18 (2 HD)
+Fort +6, Ref +3, Will +1
+Spd 30 ft.
+Melee scimitar +4 (1d6+2/18-20)
+Base Atk +1; Grp +3
+Atk Options sneak attack +1d6
+Abilities Str 15, Dex 12, Con 14, Int 8, Wis 13, Cha 10
+SQ trapfinding
+Feats Toughness
+Skills Climb +5
+Possessions scimitar
+Sneak Attack (Ex) The pirate deals an extra 1d6 points of damage when it flanks an opponent or when the opponent is denied its Dexterity bonus to AC.
+Trapfinding (Ex) The pirate can use Search to locate traps with a DC higher than 20 and can use Disable Device to disarm magic traps.

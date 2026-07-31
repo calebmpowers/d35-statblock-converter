@@ -595,6 +595,12 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
     }
     $possessions = @((Split-Dnd35List -Text $Project.Creature.Possessions) + (Split-Dnd35List -Text $Project.Creature.CombatGear) | Where-Object { $_ })
     $combatGear = Split-Dnd35List -Text $Project.Creature.CombatGear
+    $classes = foreach ($class in @($Project.Creature.Identity.Classes)) {
+        [pscustomobject][ordered]@{
+            name = $class.Name
+            level = $class.Level
+        }
+    }
     $specialAbilities = Get-Roll20SpecialAbilities -Project $Project
     $featDetails = foreach ($feat in @($Project.Creature.ExpandedFeats)) {
         [pscustomobject][ordered]@{
@@ -629,6 +635,7 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
                 ancestry = $Project.Creature.Identity.RaceText
                 alignment_size_type = $Project.Creature.Identity.AlignmentLine
                 source_reference = $Project.Creature.Identity.ReferenceLine
+                classes = @($classes | ForEach-Object { $_ })
                 init_line = $(if ($Project.Creature.Senses) { "Init {0}; Senses {1}" -f $(if ($Project.Creature.Initiative -ge 0) { "+$($Project.Creature.Initiative)" } else { "$($Project.Creature.Initiative)" }), $Project.Creature.Senses } else { "Init {0}" -f $(if ($Project.Creature.Initiative -ge 0) { "+$($Project.Creature.Initiative)" } else { "$($Project.Creature.Initiative)" }) })
                 languages_line = $(if ($Project.Creature.Languages) { "Languages $($Project.Creature.Languages)" } else { '' })
                 aura_lines = $(if ($Project.Creature.Aura) { @("Aura $($Project.Creature.Aura)") } else { @() })
