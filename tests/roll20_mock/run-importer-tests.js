@@ -243,6 +243,27 @@ function assertImport(world, payload, filePath) {
         );
     });
 
+    if (String(payload.creature && payload.creature.name || '') === 'Lavinia Vanderboren') {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        ['Dodge Bonus', 'Grace', 'Insightful Strike'].forEach((entryName) => {
+            assert.ok(
+                classAbilities.includes(entryName),
+                sourceName + ': Lavinia class feature missing from Class Abilities: ' + entryName
+            );
+        });
+        assert.strictEqual(
+            racialAbilities,
+            '',
+            sourceName + ': Lavinia should have no Racial Abilities entries'
+        );
+        assert.ok(
+            other.includes('Dawn Council Affiliation'),
+            sourceName + ': Lavinia affiliation entry should be in Other'
+        );
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });
@@ -520,6 +541,19 @@ function assertImport(world, payload, filePath) {
         assert.ok(
             !racialAbilities.includes('Dawn Council Affiliation'),
             sourceName + ': affiliation rules should not be placed in racial abilities'
+        );
+        assert.ok(
+            featSection.includes('Dodge [General] The pirate designates one opponent'),
+            sourceName + ': full Dodge feat entry missing from feats'
+        );
+        assert.ok(
+            !classAbilities.split(/\n\n/).some((entry) => /^Dodge\s+\+1$/i.test(entry.trim())),
+            sourceName + ': feat-derived Dodge summary should not be imported as a class ability'
+        );
+        assert.strictEqual(
+            racialAbilities,
+            '',
+            sourceName + ': class-, feat-, affiliation-, skill-trick-, and item-only NPC should have no racial abilities'
         );
     }
 }

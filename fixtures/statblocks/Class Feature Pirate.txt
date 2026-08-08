@@ -4,7 +4,7 @@ CE Medium humanoid
 Synthetic regression fixture
 Init +1; Senses normal
 Languages Common
-AC 15, touch 11, flat-footed 14
+AC 15, touch 11, flat-footed 14; Dodge +1, dodge bonus +1
 hp 18 (2 HD)
 Fort +6, Ref +3, Will +1
 Spd 30 ft.
@@ -14,7 +14,7 @@ Atk Options sneak attack +1d6
 Combat Gear potion of blur, potion of haste
 Abilities Str 15, Dex 12, Con 14, Int 8, Wis 13, Cha 10
 SQ trapfinding
-Feats Improved Toughness (+1 hp/HD), Two-Weapon Fighting
+Feats Dodge, Improved Toughness (+1 hp/HD), Two-Weapon Fighting
 Skills Climb +5
 Skill Tricks Acrobatic Backstab
 Possessions combat gear, scimitar, cloak of resistance +1, +1 keen rapier, bracelet worth 1,000 gp
@@ -22,6 +22,7 @@ Acrobatic Backstab [Movement Skill Trick] Once per encounter, a successful Tumbl
 Blur The pirate carries a potion of blur that grants concealment for 3 minutes.
 Cloak of Resistance The pirate's cloak grants a +1 resistance bonus on saving throws.
 Dawn Council Affiliation The pirate gains a conditional bonus when representing the council.
+Dodge [General] The pirate designates one opponent and gains a +1 dodge bonus to Armor Class against that opponent.
 Grace (Ex) The swashbuckler gains a +1 competence bonus on Reflex saves.
 Improved Toughness [General] The pirate gains 1 hit point per Hit Die.
 Keen The pirate's +1 keen rapier has an expanded threat range.
