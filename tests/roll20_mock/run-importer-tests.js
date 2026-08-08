@@ -497,6 +497,30 @@ function assertImport(world, payload, filePath) {
                 sourceName + ': owned-item rule should be preserved in Other: ' + entryName
             );
         });
+        assert.ok(
+            classAbilities.includes('Grace (Ex) The swashbuckler gains a +1 competence bonus'),
+            sourceName + ': full swashbuckler feature missing from class abilities'
+        );
+        assert.ok(
+            !racialAbilities.includes('Grace (Ex)'),
+            sourceName + ': swashbuckler feature should not be placed in racial abilities'
+        );
+        assert.ok(
+            other.includes('Potion of Haste') && other.includes('Spd 60 ft.') && other.includes('Melee scimitar +5'),
+            sourceName + ': temporary stat lines should remain attached to the potion reference in Other'
+        );
+        assert.ok(
+            !racialAbilities.split(/\n\n/).some((entry) => /^(?:Spd|AC|Melee|Ranged)\b/.test(entry)),
+            sourceName + ': temporary potion stat lines should not become racial-ability entries'
+        );
+        assert.ok(
+            other.includes('Dawn Council Affiliation'),
+            sourceName + ': affiliation rules should be preserved in Other'
+        );
+        assert.ok(
+            !racialAbilities.includes('Dawn Council Affiliation'),
+            sourceName + ': affiliation rules should not be placed in racial abilities'
+        );
     }
 }
 

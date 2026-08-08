@@ -1749,6 +1749,12 @@
                 known[key] = true;
             }
         });
+        asArray(creature.ordinary_entries).forEach(function (entry) {
+            var key = normalizeAbilitySummaryName(entry && (entry.name || entry.raw));
+            if (key) {
+                known[key] = true;
+            }
+        });
         return known;
     }
 
@@ -1807,6 +1813,12 @@
         sorcerer: {
             familiar: true,
             'sorcerer spellcasting': true
+        },
+        swashbuckler: {
+            'dodge bonus': true,
+            grace: true,
+            'insightful strike': true,
+            'weapon finesse': true
         },
         tempest: {
             ambidexterity: true,
@@ -1942,6 +1954,10 @@
                     if (!FEAT_CATEGORY_NAMES[normalizeLookupText(entry.type)]) {
                         otherParts.push(entry.raw);
                     }
+                    return;
+                }
+                if (/\baffiliation$/i.test(trim(entry.name || ''))) {
+                    otherParts.push(entry.raw);
                     return;
                 }
                 if (normalizeLookupText(entry.name) === 'skills') {

@@ -1800,6 +1800,18 @@ function Parse-LowerEntryRecords {
         if (-not $record -or -not $record.Text) {
             continue
         }
+        $recordText = ConvertTo-PlainText $record.Text
+        if ($entries.Count -gt 0) {
+            $previous = $entries[$entries.Count - 1]
+            $isPotionStatContinuation = $previous.Name -match '^Potion of\b' -and
+                $recordText -match '^(?:Spd|AC|Melee|Ranged|Skills)\b'
+            if ($isPotionStatContinuation) {
+                $previous.Body = (($previous.Body, $recordText | Where-Object { $_ }) -join "`n`n")
+                $previous.Raw = (($previous.Raw, $recordText | Where-Object { $_ }) -join "`n`n")
+                continue
+            }
+        }
+
         $entry = New-LowerEntryFromRecord -Record $record -Warnings $Warnings
         if ($entry) {
             $entries.Add($entry)
