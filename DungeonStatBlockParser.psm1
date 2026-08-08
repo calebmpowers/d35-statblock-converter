@@ -800,7 +800,7 @@ function Parse-IdentityClasses {
         return [pscustomobject]$result
     }
 
-    $clean = $clean -replace '^(Male and female|Female and male|Male|Female)\s+', ''
+    $clean = $clean -replace '^(Male (?:and|or) female|Female (?:and|or) male|Male|Female)\s+', ''
     $segments = @($clean -split '/')
     $classes = New-Object System.Collections.Generic.List[object]
     $raceText = ''
@@ -1040,7 +1040,7 @@ function Parse-IdentityBlock {
             $info.RaceText = $classData.RaceText
         }
         else {
-            $info.RaceText = (ConvertTo-PlainText ($info.IdentityLine -replace '^(Male and female|Female and male|Male|Female)\s+', ''))
+            $info.RaceText = (ConvertTo-PlainText ($info.IdentityLine -replace '^(Male (?:and|or) female|Female (?:and|or) male|Male|Female)\s+', ''))
         }
     }
 
@@ -1346,6 +1346,7 @@ function ConvertTo-NormalizedSpellName {
     param([string]$Name)
 
     $clean = ConvertTo-PlainText $Name
+    $clean = $clean -creplace '(?<=[a-z\)])D$', ''
     $clean = $clean -replace '\([^)]*\)', ''
     $clean = $clean -replace '\bDC\s+\d+\b', ''
     $clean = $clean -replace '[!''’]', ''
@@ -1534,7 +1535,7 @@ function Parse-SpellLevelEntries {
         if ($line -match '^(?<level>\d+)(?:st|nd|rd|th)?(?:\s*\((?<slots>[^)]+)\))?\s*[-:]\s*(?<spells>.+)$') {
             $level = [int]$Matches.level
             $slots = (ConvertTo-PlainText $Matches['slots'])
-            $spellItems = Split-TopLevel -Text $Matches.spells -Delimiters @(', ')
+            $spellItems = Split-TopLevel -Text $Matches.spells -Delimiters @(', ', '; ')
             foreach ($spellItem in $spellItems) {
                 $dc = ''
                 $prep = ''
@@ -1801,6 +1802,9 @@ function Parse-LowerEntryRecords {
             continue
         }
         $recordText = ConvertTo-PlainText $record.Text
+        if ($recordText -match '^D\s*:?[ ]*Domain spell\.?$') {
+            continue
+        }
         if ($entries.Count -gt 0) {
             $previous = $entries[$entries.Count - 1]
             $isPotionStatContinuation = $previous.Name -match '^Potion of\b' -and
@@ -1872,6 +1876,9 @@ function Parse-SpellReferenceRecords {
         }
 
         if ($null -eq $currentLevel) {
+            if ($text -match '(?i)spontaneous cure spells?.*included below') {
+                continue
+            }
             Add-Warning -Warnings $Warnings -Message "Spell Reference text before a level heading was preserved as a warning: $text"
             continue
         }
@@ -1955,6 +1962,9 @@ function Link-SpellReferenceEntries {
     foreach ($level in @($SpellReference.Levels)) {
         foreach ($reference in @($level.Spells)) {
             if (-not $reference.MatchedUpperSpell) {
+                if ($reference.Body -match '(?i)\bspontane(?:ous|ously)\b') {
+                    continue
+                }
                 Add-Warning -Warnings $Warnings -Message "Spell Reference entry '$($reference.Name)' has no matching upper prepared/known spell."
             }
         }

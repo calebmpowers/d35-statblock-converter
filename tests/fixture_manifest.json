@@ -283,8 +283,9 @@
                          "ranged_line_count":  1,
                          "spell_section_count":  1,
                          "spell_entry_count":  12,
-                         "special_ability_count":  0,
-                         "warning_count":  1
+                         "special_ability_count":  4,
+                         "ordinary_entry_count":  4,
+                         "warning_count":  0
                      }
     },
     {

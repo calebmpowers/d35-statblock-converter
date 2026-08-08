@@ -307,6 +307,51 @@ function assertImport(world, payload, filePath) {
         }
     }
 
+    if (/^(?:Temple Adept|Farshore Acolyte)$/.test(String(payload.creature && payload.creature.name || ''))) {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        assert.strictEqual(
+            String(payload.creature.header.ancestry || '').toLowerCase(),
+            'human',
+            sourceName + ': male-or-female identity prefix should not become part of ancestry'
+        );
+        ['Aura', 'Cleric Spellcasting', 'Good Domain', 'Spontaneous Casting', 'Turn Undead'].forEach((entryName) => {
+            assert.ok(
+                classAbilities.includes(entryName),
+                sourceName + ': cleric feature missing from Class Abilities: ' + entryName
+            );
+            assert.ok(
+                !racialAbilities.includes(entryName),
+                sourceName + ': cleric feature should not be in Racial Abilities: ' + entryName
+            );
+        });
+        assert.ok(
+            !String(imported.character.get('bio') || '').includes('Domain spell'),
+            sourceName + ': domain-spell footnote should not leak into biography text'
+        );
+        if (String(payload.creature.name) === 'Farshore Acolyte') {
+            ['Bless', 'Sanctuary', 'Cure Light Wounds', 'Detect Magic', 'Guidance', 'Purify Food And Drink'].forEach((spellName) => {
+                assert.ok(
+                    spellNameAttrs(attrs).includes(spellName),
+                    sourceName + ': prepared spell missing or malformed: ' + spellName
+                );
+            });
+            assert.ok(
+                classAbilities.includes('Healing Domain'),
+                sourceName + ': Healing Domain should be in Class Abilities'
+            );
+            assert.strictEqual(
+                racialAbilities,
+                '',
+                sourceName + ': human cleric with only class/item entries should have no Racial Abilities'
+            );
+            assert.ok(
+                String(attrCurrent(attrs, 'other') || '').includes('Healer’s Kit'),
+                sourceName + ': healer kit rules should be preserved in Other'
+            );
+        }
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });

@@ -1782,8 +1782,12 @@
             'uncanny dodge': true
         },
         cleric: {
+            aura: true,
+            'cleric spellcasting': true,
             'destruction domain': true,
             'fire domain': true,
+            'good domain': true,
+            'healing domain': true,
             'rebuke undead': true,
             'spontaneous casting': true,
             'turn undead': true
@@ -1996,7 +2000,15 @@
         }
 
         asArray(creature.header && creature.header.aura_lines).forEach(function (line) {
-            racialAbilityParts.push(stripPrefix(line, 'Aura\\s+'));
+            var auraEntry = {
+                name: 'Aura',
+                raw: line
+            };
+            if (isClassFeatureEntry(auraEntry, identity)) {
+                classAbilityParts.push(line);
+            } else {
+                racialAbilityParts.push(stripPrefix(line, 'Aura\\s+'));
+            }
         });
         if (creature.header && creature.header.languages_line) {
             pushClassAbilitySummary(extractLanguageHeaderExtras(creature.header.languages_line));
