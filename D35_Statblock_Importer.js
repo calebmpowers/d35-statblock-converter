@@ -1894,8 +1894,21 @@
         });
     }
 
+    function normalizeEquipmentMatchParts(value) {
+        var key = normalizeLookupText(value);
+        var enhancementMatch = key.match(/(?:^|\s)\+(\d+)(?:\s|$)/);
+        return {
+            base: trim(key
+                .replace(/(?:^|\s)\+\d+(?=\s|$)/g, ' ')
+                .replace(/\b(?:masterwork|mwk)\b/g, ' ')
+                .replace(/\s+/g, ' ')),
+            enhancement: enhancementMatch ? enhancementMatch[1] : ''
+        };
+    }
+
     function isEquipmentReferenceEntry(entry, offense, stats) {
         var entryKey = normalizeLookupText(entry && entry.name);
+        var entryParts = normalizeEquipmentMatchParts(entry && entry.name);
         var itemNames = []
             .concat(asArray(stats && stats.possessions))
             .concat(splitTopLevel(stripPrefix(offense && offense.combat_gear_line || '', 'Combat Gear\\s+')));
@@ -1904,7 +1917,15 @@
         }
         return itemNames.some(function (itemName) {
             var itemKey = normalizeLookupText(itemName);
-            return itemKey === entryKey ||
+            var itemParts = normalizeEquipmentMatchParts(itemName);
+            var enhancementCompatible = !entryParts.enhancement || !itemParts.enhancement ||
+                entryParts.enhancement === itemParts.enhancement;
+            var normalizedBaseMatch = entryParts.base && itemParts.base && enhancementCompatible && (
+                itemParts.base === entryParts.base ||
+                (' ' + itemParts.base + ' ').indexOf(' ' + entryParts.base + ' ') !== -1 ||
+                itemParts.base.slice(-(entryParts.base.length + 1)) === ' ' + entryParts.base
+            );
+            return normalizedBaseMatch || itemKey === entryKey ||
                 (' ' + itemKey + ' ').indexOf(' ' + entryKey + ' ') !== -1 ||
                 (itemKey.length > entryKey.length &&
                     itemKey.slice(-(entryKey.length + 1)) === ' ' + entryKey) ||

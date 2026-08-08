@@ -439,6 +439,43 @@ function assertImport(world, payload, filePath) {
         });
     }
 
+    if (['Tight Bracket Feats', 'Lord Manthalay Meravanchi'].includes(
+        String(payload.creature && payload.creature.name || '')
+    )) {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const featSection = String(attrCurrent(attrs, 'feats') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        ['Power Attack [General]', 'Weapon Specialization (longsword) [General]'].forEach((featText) => {
+            assert.ok(
+                featSection.includes(featText),
+                sourceName + ': tightly spaced feat heading was not normalized: ' + featText
+            );
+        });
+        assert.strictEqual(
+            classAbilities,
+            '',
+            sourceName + ': feat-derived attack options should not populate Class Abilities'
+        );
+        assert.strictEqual(
+            racialAbilities,
+            '',
+            sourceName + ': human fighter with feat and equipment entries should have no Racial Abilities'
+        );
+        assert.ok(
+            other.includes('Heavy Steel Shield +1'),
+            sourceName + ': suffix-form enhancement heading should match prefix-form possession text'
+        );
+        if (String(payload.creature && payload.creature.name || '') === 'Lord Manthalay Meravanchi') {
+            const bio = String(imported.character.get('bio') || '');
+            assert.ok(
+                other.includes('Dawn Council Affiliation') && other.includes('Mithral Chainmail +1'),
+                sourceName + ': affiliation and equipment rules should be preserved in Other'
+            );
+            assert.strictEqual(bio, '', sourceName + ': Manthalay Biography should be empty');
+        }
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });

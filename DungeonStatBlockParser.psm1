@@ -1730,10 +1730,10 @@ function Test-IsLowerEntryStart {
     if ($Record.SourceKind -eq 'docx' -and $Record.LeadingBoldText) {
         return $true
     }
-    return $Record.Text -match '^.+?\s+(?:\[[^\]]+\]|\((?:Ex|Su|Sp|Ps)\))\s+.+$' -or
+    return $Record.Text -match '^.+?(?:\s*\[[^\]]+\]|\s+\((?:Ex|Su|Sp|Ps)\))\s+.+$' -or
         $Record.Text -match '^Skills\s+\D' -or
         $Record.Text -match '^[A-Z][A-Za-z0-9'' -]{1,80}\s+(?:-|:|—)\s+.+$' -or
-        $Record.Text -cmatch '^[A-Z][A-Za-z0-9'' -]{1,80}?\s+(?:The|A|An|Full|When|Once|If|This)\b.+$'
+        $Record.Text -cmatch '^[A-Z][A-Za-z0-9''+() -]{1,80}?\s+(?:The|A|An|Full|When|Once|If|This)\b.+$'
 }
 
 function New-LowerEntryFromRecord {
@@ -1751,7 +1751,7 @@ function New-LowerEntryFromRecord {
     if ($Record.SourceKind -eq 'docx' -and $Record.LeadingBoldText) {
         $namePart = ConvertTo-PlainText $Record.LeadingBoldText
         $body = ConvertTo-PlainText $raw.Substring([Math]::Min($Record.LeadingBoldText.Length, $raw.Length))
-        if ($namePart -match '^(?<name>.+?)\s+\[(?<type>[^\]]+)\]$') {
+        if ($namePart -match '^(?<name>.+?)\s*\[(?<type>[^\]]+)\]$') {
             $name = ConvertTo-PlainText $Matches.name
             $type = ConvertTo-PlainText $Matches.type
             $typeStyle = 'bracketed'
@@ -1763,9 +1763,14 @@ function New-LowerEntryFromRecord {
         }
         else {
             $name = $namePart
+            if ($body -match '^\s*\[(?<type>[^\]]+)\]\s*(?<body>.*)$') {
+                $type = ConvertTo-PlainText $Matches.type
+                $typeStyle = 'bracketed'
+                $body = ConvertTo-PlainText $Matches.body
+            }
         }
     }
-    elseif ($raw -match '^(?<name>.+?)\s+\[(?<type>[^\]]+)\]\s+(?<body>.+)$') {
+    elseif ($raw -match '^(?<name>.+?)\s*\[(?<type>[^\]]+)\]\s+(?<body>.+)$') {
         $name = ConvertTo-PlainText $Matches.name
         $type = ConvertTo-PlainText $Matches.type
         $typeStyle = 'bracketed'
@@ -1785,7 +1790,7 @@ function New-LowerEntryFromRecord {
         $name = ConvertTo-PlainText $Matches.name
         $body = ConvertTo-PlainText $Matches.body
     }
-    elseif ($raw -cmatch '^(?<name>[A-Z][A-Za-z0-9'' -]{1,80}?)\s+(?<body>(?:The|A|An|Full|When|Once|If|This)\b.+)$') {
+    elseif ($raw -cmatch '^(?<name>[A-Z][A-Za-z0-9''+() -]{1,80}?)\s+(?<body>(?:The|A|An|Full|When|Once|If|This)\b.+)$') {
         $name = ConvertTo-PlainText $Matches.name
         $body = ConvertTo-PlainText $Matches.body
     }
@@ -1793,12 +1798,20 @@ function New-LowerEntryFromRecord {
         return $null
     }
 
+    $normalizedRaw = $raw
+    if ($typeStyle -eq 'bracketed') {
+        $normalizedRaw = ("{0} [{1}] {2}" -f $name, $type, $body).Trim()
+    }
+    elseif ($typeStyle -eq 'parenthetical') {
+        $normalizedRaw = ("{0} ({1}) {2}" -f $name, $type, $body).Trim()
+    }
+
     return [pscustomobject][ordered]@{
         Name = $name
         Type = $type
         TypeStyle = $typeStyle
         Body = $body
-        Raw = $raw
+        Raw = $normalizedRaw
     }
 }
 
