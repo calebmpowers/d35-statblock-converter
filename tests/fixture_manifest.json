@@ -559,5 +559,30 @@
             "spell_reference_count": 0,
             "warning_count": 0
         }
+    },
+    {
+        "file": "Multilevel Wizard Rogue.txt",
+        "expected": {
+            "name": "Multilevel Wizard Rogue",
+            "cr": "3",
+            "alignment_size_type": "LN Medium humanoid (human)",
+            "ac_line": "AC 11, touch 11, flat-footed 10",
+            "hp_line": "hp 11 (3 HD)",
+            "fort_ref_will_line": "Fort +0, Ref +3, Will +5",
+            "speed_line": "Spd 30 ft.",
+            "abilities_line": "Abilities Str 7, Dex 13, Con 11, Int 16, Wis 14, Cha 11",
+            "feat_count": 2,
+            "feat_detail_count": 2,
+            "skill_count": 3,
+            "possession_count": 4,
+            "melee_line_count": 1,
+            "ranged_line_count": 1,
+            "spell_section_count": 1,
+            "spell_entry_count": 4,
+            "special_ability_count": 5,
+            "ordinary_entry_count": 7,
+            "spell_reference_count": 0,
+            "warning_count": 0
+        }
     }
 ]

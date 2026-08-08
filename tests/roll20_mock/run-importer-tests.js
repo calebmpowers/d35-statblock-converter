@@ -398,6 +398,47 @@ function assertImport(world, payload, filePath) {
         );
     }
 
+    if (['Multilevel Wizard Rogue', 'Jeran Emrikad'].includes(
+        String(payload.creature && payload.creature.name || '')
+    )) {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        const bio = String(imported.character.get('bio') || '');
+        ['Sneak Attack', 'Summon Familiar', 'Trapfinding', 'Wizard Spellcasting'].forEach((entryName) => {
+            assert.ok(
+                classAbilities.includes(entryName),
+                sourceName + ': wizard/rogue class feature missing from Class Abilities: ' + entryName
+            );
+        });
+        assert.strictEqual(
+            racialAbilities,
+            '',
+            sourceName + ': human wizard/rogue should have no Racial Abilities entries'
+        );
+        assert.ok(
+            other.includes('The Seekers Affiliation'),
+            sourceName + ': full Seekers affiliation should be preserved in Other'
+        );
+        assert.ok(
+            !other.includes('Affiliation The Seekers 4'),
+            sourceName + ': upper affiliation summary should not duplicate the full entry'
+        );
+        assert.ok(
+            !/affiliation|bonus feat/i.test(bio),
+            sourceName + ': affiliation and bonus-feat notation should not populate Biography'
+        );
+        if (String(payload.creature && payload.creature.name || '') === 'Jeran Emrikad') {
+            assert.strictEqual(bio, '', sourceName + ': Jeran Biography should be empty');
+        }
+        ['Alarm', 'Unseen Servant', 'Detect Magic', 'Light'].forEach((spellName) => {
+            assert.ok(
+                spellNameAttrs(attrs).includes(spellName),
+                sourceName + ': multilevel prepared spell missing or malformed: ' + spellName
+            );
+        });
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });

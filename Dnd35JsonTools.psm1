@@ -470,7 +470,8 @@ function Get-Roll20BioNotes {
         $Project.Creature.Notes | Where-Object {
             $noteKey = ([string]$_).Trim().ToLowerInvariant()
             -not ($noteKey -and $skillSummaries.ContainsKey($noteKey)) -and
-            $noteKey -notmatch '^d\s*:?[ ]*domain spell\.?$'
+            $noteKey -notmatch '^d\s*:?[ ]*domain spell\.?$' -and
+            $noteKey -notmatch '^b\s+.*bonus feat\.?$'
         }
     ) -join "`n`n"
 }

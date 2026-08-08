@@ -799,12 +799,18 @@
     function splitBioAndMechanicalText(text) {
         var bioParts = [];
         var mechanicalParts = [];
+        var otherParts = [];
         String(text || '').split(/\n\s*\n/).forEach(function (paragraph) {
             var cleaned = trim(paragraph);
             if (!cleaned) {
                 return;
             }
-            if (/^[A-Z][^.()]*\((Ex|Sp|Su)\)/.test(cleaned) || /^(?:Skills|Spells)\b/i.test(cleaned)) {
+            if (/^B\s+.*bonus feat\.?$/i.test(cleaned)) {
+                return;
+            }
+            if (/^Affiliation\b/i.test(cleaned)) {
+                otherParts.push(cleaned);
+            } else if (/^[A-Z][^.()]*\((Ex|Sp|Su)\)/.test(cleaned) || /^(?:Skills|Spells)\b/i.test(cleaned)) {
                 mechanicalParts.push(cleaned);
             } else {
                 bioParts.push(cleaned);
@@ -812,7 +818,8 @@
         });
         return {
             bio: bioParts.join('\n\n'),
-            mechanical: mechanicalParts.join('\n\n')
+            mechanical: mechanicalParts.join('\n\n'),
+            other: otherParts.join('\n\n')
         };
     }
 
@@ -1837,6 +1844,11 @@
         tempest: {
             ambidexterity: true,
             'tempest defense': true
+        },
+        wizard: {
+            familiar: true,
+            'summon familiar': true,
+            'wizard spellcasting': true
         }
     };
 
@@ -2018,6 +2030,17 @@
         }
         if (extra.mechanical) {
             racialAbilityParts.push(extra.mechanical);
+        }
+        if (extra.other) {
+            String(extra.other).split(/\n\s*\n/).forEach(function (paragraph) {
+                var duplicatesFullAffiliation = /^Affiliation\b/i.test(paragraph) &&
+                    ordinaryEntries.some(function (entry) {
+                        return /\baffiliation$/i.test(trim(entry && entry.name || ''));
+                    });
+                if (!duplicatesFullAffiliation) {
+                    otherParts.push(paragraph);
+                }
+            });
         }
 
         asArray(creature.header && creature.header.aura_lines).forEach(function (line) {

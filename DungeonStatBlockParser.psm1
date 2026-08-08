@@ -1523,11 +1523,24 @@ function Parse-SpellLevelEntries {
         $allLines.Add((ConvertTo-PlainText $line))
     }
 
+    $normalizedLevelLines = New-Object System.Collections.Generic.List[string]
+    foreach ($sourceLine in $allLines) {
+        foreach ($levelLine in [regex]::Split(
+            $sourceLine,
+            '\s+(?=\d+(?:st|nd|rd|th)?(?:\s*\([^)]+\))?\s*[-:])'
+        )) {
+            $cleanLevelLine = ConvertTo-PlainText $levelLine
+            if ($cleanLevelLine) {
+                $normalizedLevelLines.Add($cleanLevelLine)
+            }
+        }
+    }
+
     if ($Header.Heading -match 'Spell-Like|Psi-Like') {
         return Parse-UsageEntries -Text (($allLines -join ' ')) -Header $Header
     }
 
-    foreach ($line in $allLines) {
+    foreach ($line in $normalizedLevelLines) {
         if (-not $line) {
             continue
         }
