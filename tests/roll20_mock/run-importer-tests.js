@@ -264,6 +264,49 @@ function assertImport(world, payload, filePath) {
         );
     }
 
+    if (/^(?:Dwarf Expert|Dranys Sellis)$/.test(String(payload.creature && payload.creature.name || ''))) {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const possessions = statistics.possessions || [];
+        assert.strictEqual(
+            classAbilities,
+            '',
+            sourceName + ': expanded dwarf traits should suppress their abbreviated class-ability summaries'
+        );
+        assert.strictEqual(
+            racialAbilities.split(/\n\n/).filter(Boolean).length,
+            1,
+            sourceName + ': dwarf racial rules should import as one full Racial Abilities entry'
+        );
+        assert.ok(
+            racialAbilities.startsWith('Dwarf Traits '),
+            sourceName + ': full Dwarf Traits entry missing from Racial Abilities'
+        );
+        assert.ok(
+            possessions.some((item) => /masterwork artisan['’]s tools for armorsmithing, carpentry, and weaponsmithing/i.test(String(item))),
+            sourceName + ': comma-separated artisan tool specialties should remain one possession'
+        );
+        assert.ok(
+            !possessions.some((item) => /^(?:carpentry|and weaponsmithing)$/i.test(String(item))),
+            sourceName + ': artisan tool specialties should not become standalone possessions'
+        );
+        assert.ok(
+            !/^(?:Listen|Spot)\s+[+-]?\d+/m.test(String(imported.character.get('bio') || '')),
+            sourceName + ': Listen and Spot totals duplicated from the skill list into the biography'
+        );
+        if (String(payload.creature.name) === 'Dranys Sellis') {
+            const other = String(attrCurrent(attrs, 'other') || '');
+            assert.ok(
+                other.includes('Light Crossbow Loading a light crossbow'),
+                sourceName + ': light crossbow rules should be preserved in Other'
+            );
+            assert.ok(
+                other.includes('Masterwork Artisan’s Tools'),
+                sourceName + ': artisan tool rules should be preserved in Other'
+            );
+        }
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });

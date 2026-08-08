@@ -1755,6 +1755,16 @@
                 known[key] = true;
             }
         });
+        if (known['dwarf traits']) {
+            [
+                'stability',
+                'stonecunning',
+                '+1 attack against orcs and goblinoids',
+                '+4 dodge against giants'
+            ].forEach(function (key) {
+                known[key] = true;
+            });
+        }
         return known;
     }
 

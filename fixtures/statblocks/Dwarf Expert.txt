@@ -1,0 +1,22 @@
+Dwarf Expert CR 1
+Dwarf expert 2
+N Medium humanoid (dwarf)
+Synthetic regression fixture
+Init -1; Senses darkvision 60 ft.; Listen +2, Spot +2
+Languages Common, Dwarven, Terran
+AC 11, touch 9, flat-footed 11 (+2 armor, -1 Dex); +4 dodge against giants
+hp 9 (2 HD)
+Fort +1, Ref -1, Will +3
+Spd 20 ft.
+Melee heavy mace +2 (1d8+1)
+Ranged light crossbow +0 (1d8/19-20)
+Space 5 ft.; Reach 5 ft.
+Base Atk +1; Grp +2
+Atk Options +1 attack against orcs and goblinoids
+Abilities Str 12, Dex 9, Con 13, Int 13, Wis 10, Cha 6
+SQ dwarf traits, stability, stonecunning
+Feats Skill Focus (Craft [carpentry])
+Skills Craft (carpentry) +9, Listen +2, Search +5 (+7 for unusual stonework), Spot +2
+Possessions leather armor, heavy mace, light crossbow with 10 bolts, masterwork artisan's tools for armorsmithing, carpentry, and weaponsmithing, artisan's outfit, 35 gp
+Dwarf Traits The dwarf's speed is not reduced by armor or encumbrance. He has darkvision, stonecunning, stability, a +1 racial attack bonus against orcs and goblinoids, and a +4 dodge bonus to Armor Class against giants.
+Skill Focus (Craft [carpentry]) [General] The dwarf gains a +3 bonus on all Craft (carpentry) checks.

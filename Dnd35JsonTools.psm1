@@ -29,7 +29,13 @@ function Split-Dnd35List {
     $buffer = New-Object System.Text.StringBuilder
     $depth = 0
     $thousandsMarker = [char]0xE000
+    $groupingMarker = [char]0xE001
     $workingText = [regex]::Replace($Text, '(?<=\d),(?=\d{3}(?:\D|$))', [string]$thousandsMarker)
+    $workingText = [regex]::Replace(
+        $workingText,
+        '(?i)(?:masterwork\s+)?artisan(?:''|\u2019)s tools for [^,()]+,\s*[^,()]+,\s*and\s+[^,()]+',
+        { param($match) $match.Value.Replace(',', [string]$groupingMarker) }
+    )
 
     foreach ($character in $workingText.ToCharArray()) {
         if ($character -eq '(') {
@@ -40,7 +46,7 @@ function Split-Dnd35List {
         }
 
         if ($character -eq ',' -and $depth -eq 0) {
-            $part = $buffer.ToString().Replace([string]$thousandsMarker, ',').Trim()
+            $part = $buffer.ToString().Replace([string]$thousandsMarker, ',').Replace([string]$groupingMarker, ',').Trim()
             if ($part) {
                 $result.Add($part)
             }
@@ -51,7 +57,7 @@ function Split-Dnd35List {
         [void]$buffer.Append($character)
     }
 
-    $tail = $buffer.ToString().Replace([string]$thousandsMarker, ',').Trim()
+    $tail = $buffer.ToString().Replace([string]$thousandsMarker, ',').Replace([string]$groupingMarker, ',').Trim()
     if ($tail) {
         $result.Add($tail)
     }
@@ -452,7 +458,20 @@ function Get-Roll20SpecialAbilities {
 function Get-Roll20BioNotes {
     param([pscustomobject]$Project)
 
-    return @($Project.Creature.Notes) -join "`n`n"
+    $skillSummaries = @{}
+    foreach ($skill in @($Project.Creature.SkillEntries)) {
+        $key = ("{0} {1}" -f $skill.Name, $skill.Bonus).Trim().ToLowerInvariant()
+        if ($key) {
+            $skillSummaries[$key] = $true
+        }
+    }
+
+    return @(
+        $Project.Creature.Notes | Where-Object {
+            $noteKey = ([string]$_).Trim().ToLowerInvariant()
+            -not ($noteKey -and $skillSummaries.ContainsKey($noteKey))
+        }
+    ) -join "`n`n"
 }
 
 function Convert-LowerEntryToJson {
