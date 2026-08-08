@@ -1,0 +1,21 @@
+Equipment Trip Commoner CR 2
+Human commoner 3
+NG Medium humanoid
+Synthetic regression fixture
+Init -1; Senses Listen +4, Spot +4
+Languages Common
+AC 9, touch 9, flat-footed 9
+hp 10 (3 HD)
+Fort +1, Ref +0, Will +2
+Spd 30 ft.
+Melee sickle +2 (1d6+1)
+Base Atk +1; Grp +2
+Atk Options trip
+Abilities Str 12, Dex 9, Con 11, Int 10, Wis 13, Cha 8
+Feats Animal Affinity, Endurance, Skill Focus (Profession [farmer])
+Skills Handle Animal +7, Listen +4, Profession (farmer) +10, Ride +1, Spot +4
+Possessions sickle, peasant's outfit, belt pouch, 5 gp
+Animal Affinity [General] The commoner gains a +2 bonus on Handle Animal and Ride checks.
+Endurance [General] The commoner gains a +4 bonus on specified checks and saves involving extended physical effort.
+Sickle The commoner can use a sickle to make trip attacks. If tripped during the attempt, the commoner can drop the sickle to avoid being tripped.
+Skill Focus (Profession [farmer]) [General] The commoner gains a +3 bonus on Profession (farmer) checks.

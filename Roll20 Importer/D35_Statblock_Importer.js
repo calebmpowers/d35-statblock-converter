@@ -1950,11 +1950,18 @@
                 var partKey = normalizeAbilitySummaryName(part);
                 return !ordinaryEntries.some(function (entry) {
                     var entryKey;
+                    var entryTextKey;
                     if (!isEquipmentReferenceEntry(entry, offense, stats)) {
                         return false;
                     }
                     entryKey = normalizeAbilitySummaryName(entry && entry.name);
-                    return entryKey && (' ' + partKey + ' ').indexOf(' ' + entryKey + ' ') !== -1;
+                    entryTextKey = normalizeLookupText([
+                        entry && entry.name,
+                        entry && entry.body,
+                        entry && entry.raw
+                    ].filter(Boolean).join(' '));
+                    return (entryKey && (' ' + partKey + ' ').indexOf(' ' + entryKey + ' ') !== -1) ||
+                        (partKey && (' ' + entryTextKey + ' ').indexOf(' ' + partKey + ' ') !== -1);
                 });
             }).join(', ');
         }

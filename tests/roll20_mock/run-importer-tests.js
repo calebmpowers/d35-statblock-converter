@@ -376,6 +376,28 @@ function assertImport(world, payload, filePath) {
         );
     }
 
+    if (['Equipment Trip Commoner', 'Hilde Swenten'].includes(
+        String(payload.creature && payload.creature.name || '')
+    )) {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        assert.strictEqual(
+            classAbilities,
+            '',
+            sourceName + ': equipment-derived trip option should not populate Class Abilities'
+        );
+        assert.strictEqual(
+            racialAbilities,
+            '',
+            sourceName + ': human commoner with feat and equipment entries should have no Racial Abilities'
+        );
+        assert.ok(
+            other.includes('Sickle') && other.includes('trip attacks'),
+            sourceName + ': full sickle trip rule should be preserved in Other'
+        );
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });
