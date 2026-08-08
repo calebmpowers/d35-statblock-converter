@@ -1945,6 +1945,20 @@
             }
         }
 
+        function filterEquipmentAbilitySummaries(value) {
+            return splitAbilitySummaryText(value).filter(function (part) {
+                var partKey = normalizeAbilitySummaryName(part);
+                return !ordinaryEntries.some(function (entry) {
+                    var entryKey;
+                    if (!isEquipmentReferenceEntry(entry, offense, stats)) {
+                        return false;
+                    }
+                    entryKey = normalizeAbilitySummaryName(entry && entry.name);
+                    return entryKey && (' ' + partKey + ' ').indexOf(' ' + entryKey + ' ') !== -1;
+                });
+            }).join(', ');
+        }
+
         if (stats.sq_line) {
             pushClassAbilitySummary(stripPrefix(stats.sq_line, 'SQ\\s+'));
         }
@@ -2017,7 +2031,9 @@
             pushClassAbilitySummary(stripPrefix(offense.special_actions_line, 'Special Actions?\\s+'));
         }
         if (offense.attack_options_line) {
-            pushClassAbilitySummary(stripPrefix(offense.attack_options_line, 'Atk Options\\s+'));
+            pushClassAbilitySummary(filterEquipmentAbilitySummaries(
+                stripPrefix(offense.attack_options_line, 'Atk Options\\s+')
+            ));
         }
 
         if (defense.immune_line) {

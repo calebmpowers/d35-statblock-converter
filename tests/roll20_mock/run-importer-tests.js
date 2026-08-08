@@ -352,6 +352,30 @@ function assertImport(world, payload, filePath) {
         }
     }
 
+    if (String(payload.creature && payload.creature.name || '') === 'Farshore Guard') {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        assert.strictEqual(
+            classAbilities,
+            '',
+            sourceName + ': equipment-derived spear option should not populate Class Abilities'
+        );
+        assert.strictEqual(
+            racialAbilities,
+            '',
+            sourceName + ': human warrior with feat and equipment entries should have no Racial Abilities'
+        );
+        assert.ok(
+            other.includes('Spear') && other.includes('deals double damage'),
+            sourceName + ': full spear rule should be preserved in Other'
+        );
+        assert.ok(
+            other.includes('Light Crossbow'),
+            sourceName + ': full light crossbow rule should be preserved in Other'
+        );
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });
@@ -642,6 +666,14 @@ function assertImport(world, payload, filePath) {
             racialAbilities,
             '',
             sourceName + ': class-, feat-, affiliation-, skill-trick-, and item-only NPC should have no racial abilities'
+        );
+        assert.ok(
+            other.includes('Spear A readied spear deals double damage'),
+            sourceName + ': full spear equipment rule should be preserved in Other'
+        );
+        assert.ok(
+            !classAbilities.includes('Set Spear Against Charge'),
+            sourceName + ': abbreviated spear attack option should not become a class ability'
         );
     }
 }

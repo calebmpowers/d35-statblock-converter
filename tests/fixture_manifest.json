@@ -524,13 +524,13 @@
             "feat_count": 3,
             "feat_detail_count": 3,
             "skill_count": 1,
-            "possession_count": 6,
+            "possession_count": 7,
             "melee_line_count": 1,
             "ranged_line_count": 0,
             "spell_section_count": 0,
             "spell_entry_count": 0,
-            "special_ability_count": 8,
-            "ordinary_entry_count": 12,
+            "special_ability_count": 9,
+            "ordinary_entry_count": 13,
             "spell_reference_count": 0,
             "warning_count": 0
         }
