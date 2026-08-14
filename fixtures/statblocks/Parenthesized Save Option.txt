@@ -7,7 +7,7 @@ AC 16, touch 10, flat-footed 16 (+6 natural)
 hp 22 (2 HD)
 Fort +6, Ref +0, Will -1
 Spd 30 ft.
-Melee morningstar +1 (1d8)
+Melee morningstar +1 (1d8) and claw -1 (1d4) and bite -1 (1d4), or 2 claws +1 each (1d4) and bite -1 (1d4)
 Base Atk +1; Grp +1
 Atk Options stench (Fort DC 16)
 Abilities Str 11, Dex 10, Con 17, Int 8, Wis 9, Cha 8

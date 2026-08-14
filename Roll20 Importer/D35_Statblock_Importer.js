@@ -2236,14 +2236,24 @@
 
     function dedupeWeaponNames(weapons, feats, offense) {
         var counts = {};
+        var naturalRoutineCounts = {};
         weapons.forEach(function (weapon) {
             var baseName = weapon.displayName;
+            var naturalRoutineKey = getNaturalWeaponRoutineKey(weapon);
             if (counts[baseName] === undefined) {
                 counts[baseName] = 0;
             }
             counts[baseName] += 1;
+            if (naturalRoutineKey) {
+                naturalRoutineCounts[naturalRoutineKey] = (naturalRoutineCounts[naturalRoutineKey] || 0) + 1;
+            }
             if (counts[baseName] > 1) {
-                if (isRapidShotVariant(weapon, feats, offense)) {
+                if (naturalRoutineKey && naturalRoutineCounts[naturalRoutineKey] > 1) {
+                    // Alternate melee routines can repeat the same natural weapon at a
+                    // different attack bonus. Keep the clean name; standalone token
+                    // actions are collapsed separately while full attacks remain intact.
+                    weapon.displayName = baseName;
+                } else if (isRapidShotVariant(weapon, feats, offense)) {
                     weapon.displayName = baseName + ' (Rapid Shot x' + weapon.attackBonuses.length + ')';
                     if (weapon.notes.indexOf('Rapid Shot full attack routine.') === -1) {
                         weapon.notes.push('Rapid Shot full attack routine.');
@@ -2356,6 +2366,20 @@
 
     function isNaturalWeaponName(baseName) {
         return /^(?:slam|claw|bite|gore|hoof|tail slap|tentacle|sting|pincer|talon|wing|slam \(melee\)|claw \(melee\)|bite \(melee\))$/.test(baseName);
+    }
+
+    function getNaturalWeaponRoutineKey(weapon) {
+        var baseName = normalizedWeaponBaseName(weapon).replace(/\s+\((?:melee|ranged)\)$/, '');
+        if (!isNaturalWeaponName(baseName)) {
+            return '';
+        }
+        return [
+            weapon.attackType || '',
+            baseName,
+            weapon.damage || '',
+            weapon.critMin || 20,
+            weapon.critMultiplier || 2
+        ].join('|');
     }
 
     function isWeaponFinesseEligible(weapon) {
@@ -2533,13 +2557,39 @@
         return !!(weapon && (!weapon.touch || weapon.attackType === 'Melee'));
     }
 
+    function getPreferredStandaloneWeaponIndexes(model) {
+        var preferredByRoutine = {};
+        var preferredIndexes = {};
+        (model && model.weapons || []).forEach(function (weapon, index) {
+            var routineKey = getNaturalWeaponRoutineKey(weapon);
+            var firstBonus = weapon.attackBonuses && weapon.attackBonuses.length ? weapon.attackBonuses[0] : -999;
+            if (!routineKey) {
+                preferredIndexes[index] = true;
+                return;
+            }
+            if (!preferredByRoutine[routineKey] || firstBonus > preferredByRoutine[routineKey].firstBonus) {
+                preferredByRoutine[routineKey] = {
+                    index: index,
+                    firstBonus: firstBonus
+                };
+            }
+        });
+        Object.keys(preferredByRoutine).forEach(function (routineKey) {
+            preferredIndexes[preferredByRoutine[routineKey].index] = true;
+        });
+        return preferredIndexes;
+    }
+
     function countWeaponTokenActions(model) {
         var count = 0;
-        (model && model.weapons || []).forEach(function (weapon) {
+        var preferredStandaloneIndexes = getPreferredStandaloneWeaponIndexes(model);
+        (model && model.weapons || []).forEach(function (weapon, index) {
             if (!shouldCreateWeaponTokenAction(weapon)) {
                 return;
             }
-            count += 1;
+            if (preferredStandaloneIndexes[index]) {
+                count += 1;
+            }
             if (getCountBasedFullAttackBonuses(weapon).length) {
                 count += 1;
             }
@@ -3308,11 +3358,12 @@
             bulkSetAttrs(characterId, buildNpcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
         }
 
+        var preferredStandaloneIndexes = getPreferredStandaloneWeaponIndexes(model);
         model.weapons.forEach(function (weapon, index) {
             var prefix = index < MAX_PC_WEAPONS ? 'weapon' + (index + 1) : null;
             var countBasedFullAttackBonuses = getCountBasedFullAttackBonuses(weapon);
             if (prefix) {
-                if (shouldCreateWeaponTokenAction(weapon)) {
+                if (shouldCreateWeaponTokenAction(weapon) && preferredStandaloneIndexes[index]) {
                     createAbility(characterId, weapon.displayName, buildTokenActionMacro(model.name, weapon, model), true);
                 }
                 if (shouldCreateWeaponTokenAction(weapon) && countBasedFullAttackBonuses.length) {

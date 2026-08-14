@@ -500,6 +500,27 @@ function assertImport(world, payload, filePath) {
             !/(?:Listen|Spot)\s+[+\-]?\d+|Fort DC 16\)/.test(bio),
             sourceName + ': senses totals or save-DC fragments should not populate Biography'
         );
+        if ((offense.melee_lines || []).some((line) => /2 claws/i.test(String(line && line.raw || '')))) {
+            const actionNames = tokenActions.map((ability) => String(ability.get('name') || ''));
+            assert.strictEqual(
+                actionNames.filter((name) => name === 'Claw').length,
+                1,
+                sourceName + ': alternate natural routines should produce one clean Claw action'
+            );
+            assert.strictEqual(
+                actionNames.filter((name) => name === 'Bite').length,
+                1,
+                sourceName + ': repeated Bite fragments should produce one clean Bite action'
+            );
+            assert.ok(
+                actionNames.includes('Claw Full Attack'),
+                sourceName + ': the two-claw full attack action should be preserved'
+            );
+            assert.ok(
+                !actionNames.some((name) => /^(?:Claw|Bite) \(Melee\)$/.test(name)),
+                sourceName + ': same-type natural actions should not use redundant Melee parentheticals'
+            );
+        }
     }
 
     if (String(payload.creature && payload.creature.name || '') === 'Monitor Lizard') {
