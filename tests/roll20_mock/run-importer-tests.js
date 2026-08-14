@@ -64,6 +64,37 @@ function readJson(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 }
 
+function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countRenderedFeatEntries(sectionText, featNames) {
+    return (featNames || []).reduce((count, featName) => {
+        const heading = new RegExp('(?:^|\\n\\n)' + escapeRegExp(featName) + '(?=\\s|\\[|$)', 'gi');
+        return count + (String(sectionText || '').match(heading) || []).length;
+    }, 0);
+}
+
+function normalizeFeatMatchKey(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s*\((?=[^)]*[+\-\d])[^)]*\)\s*$/, '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function renderedFeatHeadings(featNames, featDetails) {
+    const unusedDetails = (featDetails || []).slice();
+    return (featNames || []).map((featName) => {
+        const key = normalizeFeatMatchKey(featName);
+        const detailIndex = unusedDetails.findIndex((feat) => normalizeFeatMatchKey(feat && feat.name) === key);
+        if (detailIndex === -1) {
+            return featName;
+        }
+        return unusedDetails.splice(detailIndex, 1)[0].name;
+    });
+}
+
 function loadImporter(world, importerPath) {
     const context = {
         console,
@@ -539,6 +570,61 @@ function assertImport(world, payload, filePath) {
         );
     }
 
+    if (String(payload.creature && payload.creature.name || '') === 'Fire Bat') {
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        ['Attach', 'Blindsense', 'Burn (Ex)', 'Devour', 'Elemental Traits', 'Regeneration', 'Water Vulnerability'].forEach((entryName) => {
+            assert.ok(racialAbilities.includes(entryName), sourceName + ': Fire Bat racial ability missing: ' + entryName);
+        });
+        assert.strictEqual(classAbilities, '', sourceName + ': Fire Bat should have no Class Abilities');
+    }
+
+    if (String(payload.creature && payload.creature.name || '') === 'Lirith Veldirose') {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        ['Evasion', 'Sneak Attack', 'Trapfinding'].forEach((entryName) => {
+            assert.ok(classAbilities.includes(entryName), sourceName + ': Lirith class feature missing: ' + entryName);
+        });
+        assert.strictEqual(racialAbilities, '', sourceName + ': Lirith should have no Racial Abilities');
+        ['Church of the Whirling Fury Affiliation', 'Masterwork Weapons', 'Ring of Protection +1'].forEach((entryName) => {
+            assert.ok(other.includes(entryName), sourceName + ': Lirith Other entry missing: ' + entryName);
+        });
+    }
+
+    if (String(payload.creature && payload.creature.name || '') === 'Mvembi') {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        ['Cleric Spellcasting', 'Death Domain', 'Death Touch', 'Protection Domain', 'Protective Ward', 'Rebuke Undead', 'Spontaneous Casting'].forEach((entryName) => {
+            assert.ok(classAbilities.includes(entryName), sourceName + ': Mvembi class feature missing: ' + entryName);
+        });
+        assert.strictEqual(racialAbilities, '', sourceName + ': Mvembi should have no Racial Abilities');
+        ['Cloak of Resistance +1', 'Heavy Wooden Shield +1', 'Hide Armor +1', 'Masterwork Spear', 'Wand of Cure Light Wounds'].forEach((entryName) => {
+            assert.ok(other.includes(entryName), sourceName + ': Mvembi Other entry missing: ' + entryName);
+        });
+    }
+
+    if (String(payload.creature && payload.creature.name || '') === 'J’kal') {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        ['Animal Companion', 'Combat Style', 'Favored Enemy', 'Improved Combat Style', 'Ranger Spellcasting', 'Wild Empathy'].forEach((entryName) => {
+            assert.ok(classAbilities.includes(entryName), sourceName + ': J’kal class feature missing: ' + entryName);
+        });
+        assert.strictEqual(racialAbilities, '', sourceName + ': J’kal should have no Racial Abilities');
+        ['Age (Old)', 'Olman Tribes Affiliation', 'Cloak of Resistance +1', '+1 Kaua’koi'].forEach((entryName) => {
+            assert.ok(other.includes(entryName), sourceName + ': J’kal Other entry missing: ' + entryName);
+        });
+    }
+
+    if (['Olman Hunter', 'Olman War Party Warrior'].includes(String(payload.creature && payload.creature.name || ''))) {
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const other = String(attrCurrent(attrs, 'other') || '');
+        assert.strictEqual(racialAbilities, '', sourceName + ': human Olman NPC should have no Racial Abilities');
+        assert.ok(other.includes('Olman Tribes Affiliation'), sourceName + ': Olman affiliation should be preserved in Other');
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });
@@ -598,6 +684,7 @@ function assertImport(world, payload, filePath) {
         const npcFeatSection = String(attrCurrent(attrs, 'npcfeats') || '');
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
         const consolidatedFeatList = (statistics.feats || []).join(', ');
+        const featHeadings = renderedFeatHeadings(statistics.feats || [], featDetails);
         assert.notStrictEqual(
             featSection.split(/\n\n/)[0],
             consolidatedFeatList,
@@ -609,12 +696,12 @@ function assertImport(world, payload, filePath) {
             sourceName + ': consolidated NPC feat list should not precede the individual feat entries'
         );
         assert.strictEqual(
-            featSection.split(/\n\n/).filter(Boolean).length,
+            countRenderedFeatEntries(featSection, featHeadings),
             (statistics.feats || []).length,
             sourceName + ': feats should render as exactly one ordered entry per listed feat'
         );
         assert.strictEqual(
-            npcFeatSection.split(/\n\n/).filter(Boolean).length,
+            countRenderedFeatEntries(npcFeatSection, featHeadings),
             (statistics.feats || []).length,
             sourceName + ': NPC feats should render as exactly one ordered entry per listed feat'
         );
@@ -663,6 +750,26 @@ function assertImport(world, payload, filePath) {
         assert.ok(
             String(attrCurrent(attrs, 'feats') || '').includes('No fixed value is included'),
             sourceName + ': complete Power Attack rules text missing from feats'
+        );
+    }
+
+    if (sourceName === 'Avatar of the Black Spinner.dnd35.json') {
+        const daggerRoutine = tokenActions.find((ability) => ability.get('name') === 'Daggers Full Attack');
+        assert.ok(daggerRoutine, sourceName + ': expected the two-dagger full attack action');
+        const action = String(daggerRoutine.get('action') || '');
+        assert.ok(
+            action.includes('{{damage1=') && action.includes('{{damage2=') && action.includes('(floor(@{str-mod}/2))[Weapon Dmg Ability]'),
+            sourceName + ': two-dagger full attack should retain distinct primary- and off-hand damage'
+        );
+    }
+
+    if (String(payload.creature && payload.creature.name || '') === 'Olman War Party Warrior') {
+        const kauaKoiRoutine = tokenActions.find((ability) => /Kaua.*Full Attack/i.test(ability.get('name')));
+        assert.ok(kauaKoiRoutine, sourceName + ': expected the two-weapon kaua’koi routine');
+        const action = String(kauaKoiRoutine.get('action') || '');
+        assert.ok(
+            action.includes('{{damage1=') && action.includes('{{damage2=') && action.includes('(floor(@{str-mod}/2))[Weapon Dmg Ability]'),
+            sourceName + ': kaua’koi full attack should retain +2 primary and +1 off-hand damage totals'
         );
     }
 

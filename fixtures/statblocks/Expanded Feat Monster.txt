@@ -21,6 +21,8 @@ Skills Diplomacy +3, Jump +3, Listen +1, Spellcraft +4 (+6 deciphering scrolls),
 Darkvision (Ex) The expanded feat monster can see in darkness out to 60 feet.
 Dodge [General] The expanded feat monster gains a +1 dodge bonus to Armor Class against one designated opponent.
 Power Attack [General] The expanded feat monster may trade melee attack bonus for melee damage.
+
+No fixed Power Attack value is included because the amount is chosen separately for each attack.
 Improved Initiative [General] The expanded feat monster gains a +4 bonus on initiative checks.
 Ferocity (Ex) The expanded feat monster continues fighting without penalty while disabled or dying.
 Skills The listed modifiers already include applicable conditional rules. Diplomacy +3 includes the +2 synergy bonus from Sense Motive. Jump +3 includes a -2 penalty for reduced speed and a +2 synergy bonus from Tumble. Spellcraft +6 when deciphering scrolls includes the +2 synergy bonus from Use Magic Device.

@@ -1740,12 +1740,28 @@
     }
 
     function splitAbilitySummaryText(value) {
-        return String(value || '')
-            .split(/\s*[;,]\s*/)
-            .map(function (part) {
-                return trim(part);
-            })
-            .filter(Boolean);
+        var items = [];
+        var current = '';
+        var depth = 0;
+        String(value || '').split('').forEach(function (ch) {
+            if (ch === '(') {
+                depth += 1;
+            } else if (ch === ')' && depth > 0) {
+                depth -= 1;
+            }
+            if ((ch === ',' || ch === ';') && depth === 0) {
+                if (trim(current)) {
+                    items.push(trim(current));
+                }
+                current = '';
+            } else {
+                current += ch;
+            }
+        });
+        if (trim(current)) {
+            items.push(trim(current));
+        }
+        return items;
     }
 
     function buildKnownRacialAbilityNameSet(creature) {
@@ -1791,10 +1807,12 @@
         cleric: {
             aura: true,
             'cleric spellcasting': true,
+            'death touch': true,
             'destruction domain': true,
             'fire domain': true,
             'good domain': true,
             'healing domain': true,
+            'protective ward': true,
             'rebuke undead': true,
             'spontaneous casting': true,
             'turn undead': true
@@ -1820,7 +1838,11 @@
             'flurry of blows': true
         },
         ranger: {
+            'animal companion': true,
+            'combat style': true,
             'favored enemy': true,
+            'improved combat style': true,
+            'ranger spellcasting': true,
             'wild empathy': true
         },
         rogue: {
@@ -1859,6 +1881,9 @@
         }
         return asArray(identity && identity.classes).some(function (classEntry) {
             var classKey = normalizeLookupText(classEntry && classEntry.name);
+            if (classKey === 'cleric' && /\bdomain$/.test(entryKey)) {
+                return true;
+            }
             return CLASS_FEATURE_NAMES_BY_CLASS[classKey] &&
                 CLASS_FEATURE_NAMES_BY_CLASS[classKey][entryKey] === true;
         });
@@ -1941,8 +1966,13 @@
         return splitAbilitySummaryText(value).filter(function (part) {
             var key = normalizeAbilitySummaryName(part);
             var duplicatesFullEntry = key && Object.keys(knownAbilityNames).some(function (knownKey) {
-                return key === knownKey || key.indexOf(knownKey + ' ') === 0;
+                return key === knownKey || key.indexOf(knownKey + ' ') === 0 ||
+                    (key.length > knownKey.length && key.slice(-(knownKey.length + 1)) === ' ' + knownKey);
             });
+            if (!duplicatesFullEntry && knownAbilityNames['favored enemy'] &&
+                    /^(?:aberrations?|animals?|constructs?|dragons?|elementals?|fey|giants?|humanoids?|magical beasts?|monstrous humanoids?|oozes?|outsiders?|plants?|undead|vermin)\s+[+\-]\d+$/.test(key)) {
+                duplicatesFullEntry = true;
+            }
             if (duplicatesFullEntry) {
                 return false;
             }
@@ -2025,6 +2055,10 @@
                     return;
                 }
                 if (/\baffiliation$/i.test(trim(entry.name || ''))) {
+                    otherParts.push(entry.raw);
+                    return;
+                }
+                if (/^age\b/i.test(trim(entry.name || ''))) {
                     otherParts.push(entry.raw);
                     return;
                 }
@@ -2148,6 +2182,7 @@
             displayName: '',
             attackBonuses: [],
             damage: '',
+            attackDamages: [],
             critMin: 20,
             critMultiplier: 2,
             notes: [],
@@ -2191,7 +2226,18 @@
         }
         var parenMatch = trailing.match(/\(([^)]+)\)/);
         if (parenMatch) {
-            parseDamageText(parenMatch[1], result);
+            var routineDamageParts = splitTopLevel(parenMatch[1]);
+            var expectedRoutineAttacks = Math.max(result.count || 1, result.attackBonuses.length || 1);
+            var routineDamages = routineDamageParts.map(function (part) {
+                var damageMatch = normalizeText(part).match(/^(\d+d\d+(?:[+-]\d+)?)/i);
+                return damageMatch ? damageMatch[1] : '';
+            }).filter(Boolean);
+            if (routineDamageParts.length > 1 && routineDamages.length === expectedRoutineAttacks) {
+                result.attackDamages = routineDamages;
+                parseDamageText(routineDamageParts[0], result);
+            } else {
+                parseDamageText(parenMatch[1], result);
+            }
         } else if (trailing) {
             result.notes.push(trailing);
         }
@@ -2602,14 +2648,10 @@
         var normalizedName = normalizedWeaponBaseName(weapon);
         var isNatural = isNaturalWeaponName(normalizedName);
         var isRanged = weapon.attackType === 'Ranged';
-        var damageBits = splitDamageExpression(weapon.damage || '');
         var attackStatExpr = resolveWeaponAttackStat(model, weapon);
-        var damageProfile = resolveWeaponDamageProfile(model, weapon, damageBits);
         var attackAbility = resolveWeaponAttackAbilityMod(model, weapon);
         var attackResidual = (weapon.attackBonuses.length ? weapon.attackBonuses[0] : 0) -
             ((model.bab.bab || 0) + attackAbility + (model.normalizedHeader.sizeMod || 0) + (weapon.enhancementBonus || 0));
-        var damageResidual = damageBits.flatBonus - damageProfile.value - (weapon.enhancementBonus || 0);
-        var baseDamage = '';
         var attackBonuses = (attackBonusesOverride && attackBonusesOverride.length ? attackBonusesOverride : (weapon.attackBonuses && weapon.attackBonuses.length ? weapon.attackBonuses : [0])).slice();
         var firstBonus = attackBonuses[0] || 0;
         var attackBonusTerms = [
@@ -2652,22 +2694,26 @@
             }
         }
 
-        if (damageBits.diceNumber && damageBits.diceType) {
-            baseDamage = damageBits.diceNumber + 'd' + damageBits.diceType;
-            if (damageResidual > 0) {
-                baseDamage += '+' + damageResidual;
-            } else if (damageResidual < 0) {
-                baseDamage += damageResidual;
-            }
-        } else {
-            baseDamage = String(damageResidual || 0);
-        }
-
         return attackBonuses.reduce(function (messages, bonus, index) {
             var chunkIndex = Math.floor(index / 4);
             var slot = (index % 4) + 1;
             var overallSlot = index + 1;
             var delta = bonus - firstBonus;
+            var damageExpression = weapon.attackDamages && weapon.attackDamages[index] ? weapon.attackDamages[index] : (weapon.damage || '');
+            var damageBits = splitDamageExpression(damageExpression);
+            var damageProfile = resolveWeaponDamageProfile(model, weapon, damageBits);
+            var damageResidual = damageBits.flatBonus - damageProfile.value - (weapon.enhancementBonus || 0);
+            var baseDamage = '';
+            if (damageBits.diceNumber && damageBits.diceType) {
+                baseDamage = damageBits.diceNumber + 'd' + damageBits.diceType;
+                if (damageResidual > 0) {
+                    baseDamage += '+' + damageResidual;
+                } else if (damageResidual < 0) {
+                    baseDamage += damageResidual;
+                }
+            } else {
+                baseDamage = String(damageResidual || 0);
+            }
             var attackCalc = '1d20cs>' + (weapon.critMin || 20) + ' + @{bab}[BAB] + @{epicattackbonus}[Epic AB] + ' + attackStatExpr + '[Ability] + @{size}[size] + ' + (weapon.enhancementBonus || 0) + '[Weapon Enh] + ' + attackResidual + '[Weapon Focus] + ' + attackBonusTerms.join(' + ') + (delta ? ' + ' + delta + '[Routine]' : '');
             var damageCalc = baseDamage + '[Dmg] + ' + damageProfile.expr + '[Weapon Dmg Ability] + ' + (weapon.enhancementBonus || 0) + '[Weapon Enh] + ' + damageBonusTerms.join(' + ') + '';
             var critCalc = '(' + ((weapon.critMultiplier || 2) - 1) + ') * (' + damageCalc + ')';
