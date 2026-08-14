@@ -730,6 +730,13 @@ function Split-EmbeddedHeadingLine {
                 continue
             }
 
+            $prefix = $clean.Substring(0, $match.Index)
+            $openParentheses = ([regex]::Matches($prefix, '\(')).Count
+            $closeParentheses = ([regex]::Matches($prefix, '\)')).Count
+            if ($openParentheses -gt $closeParentheses) {
+                continue
+            }
+
             if ($null -eq $bestIndex -or $match.Index -lt $bestIndex) {
                 $bestIndex = $match.Index
             }

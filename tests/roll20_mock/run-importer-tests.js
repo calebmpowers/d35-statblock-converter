@@ -476,6 +476,48 @@ function assertImport(world, payload, filePath) {
         }
     }
 
+    if (['Troglodyte', 'Parenthesized Save Option'].includes(
+        String(payload.creature && payload.creature.name || '')
+    )) {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const specialAttacks = String(attrCurrent(attrs, 'npcspecialattacks') || '');
+        const bio = String(imported.character.get('bio') || '');
+        assert.strictEqual(
+            classAbilities,
+            '',
+            sourceName + ': racial stench should not populate Class Abilities'
+        );
+        assert.ok(
+            racialAbilities.includes('Darkvision') && racialAbilities.includes('Stench (Ex)'),
+            sourceName + ': full troglodyte racial abilities should be preserved'
+        );
+        assert.ok(
+            specialAttacks.includes('stench (Fort DC 16)'),
+            sourceName + ': parenthesized Fortitude DC was split from the attack option'
+        );
+        assert.ok(
+            !/(?:Listen|Spot)\s+[+\-]?\d+|Fort DC 16\)/.test(bio),
+            sourceName + ': senses totals or save-DC fragments should not populate Biography'
+        );
+    }
+
+    if (String(payload.creature && payload.creature.name || '') === 'Monitor Lizard') {
+        const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
+        const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
+        const bio = String(imported.character.get('bio') || '');
+        assert.strictEqual(classAbilities, '', sourceName + ': animal should have no Class Abilities');
+        assert.strictEqual(
+            racialAbilities.split(/\n\n/).filter((entry) => /^Low-Light Vision\b/i.test(entry)).length,
+            1,
+            sourceName + ': Low-Light Vision should appear once in Racial Abilities'
+        );
+        assert.ok(
+            !/(?:Listen|Spot)\s+[+\-]?\d+/.test(bio),
+            sourceName + ': senses totals should not populate Biography'
+        );
+    }
+
     const fullSneakAttack = (payload.creature.ordinary_entries || []).find((entry) => {
         return entry && String(entry.name || '').toLowerCase() === 'sneak attack' && entry.raw;
     });
