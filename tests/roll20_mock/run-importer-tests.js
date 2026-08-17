@@ -78,6 +78,7 @@ function countRenderedFeatEntries(sectionText, featNames) {
 function normalizeFeatMatchKey(value) {
     return String(value || '')
         .trim()
+        .replace(/\u1D2E\s*$/, '')
         .replace(/\s*\((?=[^)]*[+\-\d])[^)]*\)\s*$/, '')
         .toLowerCase()
         .replace(/\s+/g, ' ');
@@ -361,7 +362,7 @@ function assertImport(world, payload, filePath) {
             sourceName + ': domain-spell footnote should not leak into biography text'
         );
         if (String(payload.creature.name) === 'Farshore Acolyte') {
-            ['Bless', 'Sanctuary', 'Cure Light Wounds', 'Detect Magic', 'Guidance', 'Purify Food And Drink'].forEach((spellName) => {
+            ['Bless', 'Protection From Evil', 'Cure Light Wounds', 'Detect Magic', 'Guidance', 'Purify Food And Drink'].forEach((spellName) => {
                 assert.ok(
                     spellNameAttrs(attrs).includes(spellName),
                     sourceName + ': prepared spell missing or malformed: ' + spellName
@@ -909,11 +910,14 @@ function assertImport(world, payload, filePath) {
             sourceName + ': swashbuckler feature should not be placed in racial abilities'
         );
         assert.ok(
-            other.includes('Potion of Haste') && other.includes('Spd 60 ft.') && other.includes('Melee scimitar +5'),
+            other.includes('Potion of Haste') && other.includes('Spd 60 ft.') &&
+                other.includes('Ref +4') && other.includes('Melee scimitar +5') &&
+                other.includes('Haste Full Attack') && other.includes('Ranged spear +4') &&
+                other.includes('Skills Tumble +9'),
             sourceName + ': temporary stat lines should remain attached to the potion reference in Other'
         );
         assert.ok(
-            !racialAbilities.split(/\n\n/).some((entry) => /^(?:Spd|AC|Melee|Ranged)\b/.test(entry)),
+            !racialAbilities.split(/\n\n/).some((entry) => /^(?:Spd|AC|Fort|Ref|Will|Melee|Ranged|Skills|Haste Full Attack)\b/.test(entry)),
             sourceName + ': temporary potion stat lines should not become racial-ability entries'
         );
         assert.ok(

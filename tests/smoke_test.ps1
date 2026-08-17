@@ -197,6 +197,10 @@ try {
             Assert-Equal -Label 'DOCX untyped lower entry' -Actual $json.creature.ordinary_entries[1].name -Expected 'Familiar'
             Assert-Equal -Label 'DOCX italic compact line' -Actual $json.creature.spell_reference.levels[0].spells[0].compact_rules -Expected 'Evocation [Fire]; 1 standard action; Long (600 ft.); 20-ft.-radius spread; instantaneous; Reflex half; yes'
         }
+        elseif ($fixture.file -eq 'Multilevel Wizard Rogue.txt') {
+            Assert-Count -Label 'Annotated multiclass identity classes' -Items $json.creature.header.classes -Expected 2
+            Assert-Equal -Label 'Annotated multiclass final class' -Actual $json.creature.header.classes[1].name -Expected 'rogue'
+        }
     }
 
     & (Join-Path $WorkspaceRoot 'tests\roll20_mock_test.ps1') -JsonDirectory $psOutput -ImporterPath $roll20ImporterPath -NodePath $NodePath

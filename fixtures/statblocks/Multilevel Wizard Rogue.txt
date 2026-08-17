@@ -1,5 +1,5 @@
 Multilevel Wizard Rogue CR 3
-Male human wizard 2/rogue 1
+Male human wizard 2/rogue 1 (The Seekers)
 LN Medium humanoid (human)
 Synthetic regression fixture
 Init +1; Senses Listen +6, Spot +6

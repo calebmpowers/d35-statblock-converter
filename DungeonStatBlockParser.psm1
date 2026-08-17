@@ -532,10 +532,10 @@ function Normalize-FeatListText {
         return ''
     }
 
-    # Dungeon-style stat blocks use a superscript B to mark bonus feats.
-    # DOCX extraction flattens that superscript into the feat name, so remove
-    # only a trailing B immediately before a top-level list separator.
-    return ($clean -replace '(?<=[A-Za-z0-9\)])B(?=\s*(?:,|$))', '')
+    # Dungeon-style stat blocks use B or a Unicode superscript B to mark bonus
+    # feats. DOCX extraction can preserve either form, so remove only a
+    # trailing marker immediately before a top-level list separator.
+    return ($clean -replace '(?<=[A-Za-z0-9\)])[B\u1D2E](?=\s*(?:,|$))', '')
 }
 
 function Get-StatBlockParagraphs {
@@ -808,6 +808,10 @@ function Parse-IdentityClasses {
     }
 
     $clean = $clean -replace '^(Male (?:and|or) female|Female (?:and|or) male|Male|Female)\s+', ''
+    # A trailing parenthetical can identify a deity, affiliation, or other
+    # annotation after the final class level (for example, favored soul 3
+    # (Rudd)). It is not part of the class name.
+    $clean = $clean -replace '(?<=\d)\s+\([^)]*\)\s*$', ''
     $segments = @($clean -split '/')
     $classes = New-Object System.Collections.Generic.List[object]
     $raceText = ''
@@ -1841,7 +1845,7 @@ function Parse-LowerEntryRecords {
         if ($entries.Count -gt 0) {
             $previous = $entries[$entries.Count - 1]
             $isPotionStatContinuation = $previous.Name -match '^Potion of\b' -and
-                $recordText -match '^(?:Spd|AC|Melee|Ranged|Skills)\b'
+                $recordText -match '^(?:Spd|AC|Fort|Ref|Will|Melee|Ranged|Skills|Haste Full Attack)\b'
             if ($isPotionStatContinuation) {
                 $previous.Body = (($previous.Body, $recordText | Where-Object { $_ }) -join "`n`n")
                 $previous.Raw = (($previous.Raw, $recordText | Where-Object { $_ }) -join "`n`n")
@@ -2328,7 +2332,21 @@ function ConvertTo-ProjectModel {
         if ($lowerCount -gt 0) {
             $lowerRecords = @($paragraphRecords | Select-Object -Skip $lowerStartIndex -First $lowerCount)
             $lowerResult = Parse-LowerEntryRecords -Records $lowerRecords -Warnings $warnings
-            $allLowerEntries = @($lowerResult.Entries)
+            # Some campaign documents place a complete alternate-form stat
+            # block between the primary statistics and the shared expanded
+            # rules entries. Those upper-stat headings are reference data, not
+            # abilities to import into the character sheet.
+            $embeddedStatHeadings = @(
+                'Init', 'Aura', 'Languages', 'AC', 'hp', 'Immune', 'Resist',
+                'Fort', 'Spd', 'Melee', 'Ranged', 'Space', 'Reach', 'Base Atk',
+                'Atk Options', 'Special Actions', 'Combat Gear',
+                'Spells Prepared', 'Spells Known', 'Abilities', 'SQ', 'Feats',
+                'Possessions'
+            )
+            $allLowerEntries = @($lowerResult.Entries | Where-Object {
+                ($embeddedStatHeadings -notcontains $_.Name) -and
+                ($_.Name -notmatch 'CR\s*[\d-]+$')
+            })
             $model.Creature.OrdinaryEntries = @($allLowerEntries | Where-Object { $_.Name -ne 'Skills' })
             $model.Creature.Notes += @($lowerResult.Notes)
             foreach ($entry in $allLowerEntries) {

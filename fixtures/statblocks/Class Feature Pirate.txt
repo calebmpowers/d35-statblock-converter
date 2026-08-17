@@ -29,7 +29,11 @@ Keen The pirate's +1 keen rapier has an expanded threat range.
 Potion of Haste The potion grants haste for 5 rounds. While hasted, use these temporary statistics:
 Spd 60 ft.
 AC 16, touch 12, flat-footed 14
+Ref +4
 Melee scimitar +5 (1d6+2/18-20)
+Haste Full Attack scimitar +5/+5 (1d6+2/18-20)
+Ranged spear +4 (1d8+2/x3)
+Skills Tumble +9
 Spear A readied spear deals double damage when set against a charge.
 Sneak Attack (Ex) The pirate deals an extra 1d6 points of damage when it flanks an opponent or when the opponent is denied its Dexterity bonus to AC.
 Trapfinding (Ex) The pirate can use Search to locate traps with a DC higher than 20 and can use Disable Device to disarm magic traps.

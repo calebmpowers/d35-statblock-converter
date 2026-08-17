@@ -1828,6 +1828,9 @@
             'wild shape': true,
             'woodland stride': true
         },
+        'favored soul': {
+            'favored soul spellcasting': true
+        },
         'dread pirate': {
             'fearsome reputation': true,
             seamanship: true,
@@ -2897,7 +2900,9 @@
 
     function normalizeFeatMatchKey(value) {
         return normalizeLookupText(
-            trim(normalizeText(value || '')).replace(/\s*\((?=[^)]*[+\-\d])[^)]*\)\s*$/, '')
+            trim(normalizeText(value || ''))
+                .replace(/\u1D2E\s*$/, '')
+                .replace(/\s*\((?=[^)]*[+\-\d])[^)]*\)\s*$/, '')
         );
     }
 

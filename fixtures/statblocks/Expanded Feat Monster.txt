@@ -16,7 +16,7 @@ Special Actions psionics
 Psionics (CL 4th): At will-detect magic
 Abilities Str 16, Dex 12, Con 14, Int 10, Wis 12, Cha 8
 SQ darkvision
-Feats Dodge, Power Attack, Improved InitiativeB
+Feats Dodge, Power Attack, Improved Initiativeᴮ
 Skills Diplomacy +3, Jump +3, Listen +1, Spellcraft +4 (+6 deciphering scrolls), Spot +1
 Darkvision (Ex) The expanded feat monster can see in darkness out to 60 feet.
 Dodge [General] The expanded feat monster gains a +1 dodge bonus to Armor Class against one designated opponent.
