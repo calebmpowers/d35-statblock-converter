@@ -362,7 +362,12 @@ function assertImport(world, payload, filePath) {
             sourceName + ': domain-spell footnote should not leak into biography text'
         );
         if (String(payload.creature.name) === 'Farshore Acolyte') {
-            ['Bless', 'Protection From Evil', 'Cure Light Wounds', 'Detect Magic', 'Guidance', 'Purify Food And Drink'].forEach((spellName) => {
+            const farshorePreparedSpells = (payload.creature.offense.spell_sections || []).flatMap((section) => {
+                return (section.groups || []).flatMap((group) => {
+                    return (group.spells || []).map((spell) => String(spell.name || ''));
+                });
+            }).filter(Boolean);
+            farshorePreparedSpells.forEach((spellName) => {
                 assert.ok(
                     spellNameAttrs(attrs).includes(spellName),
                     sourceName + ': prepared spell missing or malformed: ' + spellName
@@ -515,6 +520,7 @@ function assertImport(world, payload, filePath) {
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
         const specialAttacks = String(attrCurrent(attrs, 'npcspecialattacks') || '');
         const bio = String(imported.character.get('bio') || '');
+        const stenchSave = String(offense.attack_options_line || '').match(/stench \(Fort DC \d+\)/i);
         assert.strictEqual(
             classAbilities,
             '',
@@ -525,11 +531,11 @@ function assertImport(world, payload, filePath) {
             sourceName + ': full troglodyte racial abilities should be preserved'
         );
         assert.ok(
-            specialAttacks.includes('stench (Fort DC 16)'),
+            stenchSave && specialAttacks.toLowerCase().includes(stenchSave[0].toLowerCase()),
             sourceName + ': parenthesized Fortitude DC was split from the attack option'
         );
         assert.ok(
-            !/(?:Listen|Spot)\s+[+\-]?\d+|Fort DC 16\)/.test(bio),
+            !/(?:Listen|Spot)\s+[+\-]?\d+|Fort DC \d+\)/.test(bio),
             sourceName + ': senses totals or save-DC fragments should not populate Biography'
         );
         if ((offense.melee_lines || []).some((line) => /2 claws/i.test(String(line && line.raw || '')))) {

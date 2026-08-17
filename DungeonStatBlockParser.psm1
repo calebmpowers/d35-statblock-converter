@@ -891,6 +891,7 @@ function Test-IsHeadingLine {
         '^Atk Options\b',
         '^Special Actions\b',
         '^Combat Gear\b',
+        '^(?:[A-Za-z][A-Za-z ''/-]+?\s+)?(?:Spell-Like Abilities|Psi-Like Abilities|Psionics|Powers Known|Imbued Spells|Spells Prepared/Known|Spells Prepared|Spells Known)\b',
         '^Spells?\b',
         '^Domains\b',
         '^Prohibited Schools\b',
@@ -1360,6 +1361,7 @@ function ConvertTo-NormalizedSpellName {
     $clean = $clean -creplace '(?<=[a-z\)])D$', ''
     $clean = $clean -replace '\([^)]*\)', ''
     $clean = $clean -replace '\bDC\s+\d+\b', ''
+    $clean = $clean -creplace '(?<=[a-z\)])[DS](?=\s*$)', ''
     $clean = $clean -replace '[!''’]', ''
     $clean = $clean -replace '\s+', ' '
     $clean = $clean.Trim(' ', ',', ';')
@@ -1713,6 +1715,7 @@ function ConvertTo-ReferenceMatchKey {
     $clean = ConvertTo-PlainText $Name
     $clean = $clean -replace '\(\s*DC\s+\d+\s*\)', ''
     $clean = $clean -replace '\(\s*\d+\s*\)$', ''
+    $clean = $clean -creplace '(?<=[a-z\)])[DS]$', ''
     $clean = $clean -replace '\s+(?:D|S|\[D\]|\[S\]|\*)$', ''
     $clean = $clean -replace "'", ''
     $clean = $clean.Replace([string][char]0x2019, '')
@@ -1909,6 +1912,12 @@ function Parse-SpellReferenceRecords {
                 Spells = @()
             }
             $levels.Add($currentLevel)
+            continue
+        }
+
+        if ($text -match '^[A-Za-z][A-Za-z /-]+ Spells$') {
+            . $completeReferenceSpell
+            $currentLevel = $null
             continue
         }
 
