@@ -2424,10 +2424,7 @@
         }
         return [
             weapon.attackType || '',
-            baseName,
-            weapon.damage || '',
-            weapon.critMin || 20,
-            weapon.critMultiplier || 2
+            baseName
         ].join('|');
     }
 

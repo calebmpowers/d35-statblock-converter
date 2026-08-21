@@ -1346,7 +1346,7 @@ function Parse-AttackLine {
 
     $prefix = if ($Category -eq 'Melee') { '^Melee\*?\s+' } else { '^Ranged\*?\s+' }
     $body = $Line -replace $prefix, ''
-    $parts = Split-TopLevel -Text $body -Delimiters @(' and ', ' or ')
+    $parts = Split-TopLevel -Text $body -Delimiters @(' and ', ', or ', ' or ', ', ')
     $entries = foreach ($part in $parts) {
         Parse-AttackPart -Text $part -Category $Category
     }

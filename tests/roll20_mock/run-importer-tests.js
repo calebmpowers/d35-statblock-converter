@@ -577,6 +577,32 @@ function assertImport(world, payload, filePath) {
         );
     }
 
+    if (['Mixed Weapon Natural Alternatives', 'Phanaton Tar-Gatherer'].includes(
+        String(payload.creature && payload.creature.name || '')
+    )) {
+        const actionNames = tokenActions.map((ability) => String(ability.get('name') || ''));
+        const biteActions = tokenActions.filter((ability) => String(ability.get('name') || '') === 'Bite');
+        assert.strictEqual(
+            actionNames.filter((name) => name === 'Bite').length,
+            1,
+            sourceName + ': primary and secondary Bite profiles should collapse to one standalone action'
+        );
+        assert.ok(
+            !actionNames.includes('Bite (Melee)'),
+            sourceName + ': natural Bite should not carry a redundant Melee parenthetical'
+        );
+        assert.ok(
+            String(biteActions[0] && biteActions[0].get('action') || '').includes('@{str-mod}'),
+            sourceName + ': the strongest primary Bite damage profile should be retained'
+        );
+        ['Dagger', 'Dagger (Ranged)', 'Spear', 'Spear (Ranged)'].forEach((actionName) => {
+            assert.ok(
+                actionNames.includes(actionName),
+                sourceName + ': missing clean alternative weapon action: ' + actionName
+            );
+        });
+    }
+
     if (String(payload.creature && payload.creature.name || '') === 'Fire Bat') {
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
         const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');

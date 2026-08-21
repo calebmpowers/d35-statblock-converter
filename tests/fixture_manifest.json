@@ -634,5 +634,29 @@
             "spell_reference_count": 0,
             "warning_count": 0
         }
+    },
+    {
+        "file": "Mixed Weapon Natural Alternatives.txt",
+        "expected": {
+            "name": "Mixed Weapon Natural Alternatives",
+            "cr": "1",
+            "alignment_size_type": "N Small humanoid",
+            "ac_line": "AC 15, touch 14, flat-footed 12 (+1 size, +3 Dex, +1 natural)",
+            "hp_line": "hp 8 (1 HD)",
+            "fort_ref_will_line": "Fort +1, Ref +5, Will +1",
+            "speed_line": "Spd 30 ft., climb 20 ft.",
+            "abilities_line": "Abilities Str 12, Dex 16, Con 12, Int 10, Wis 12, Cha 8",
+            "feat_count": 1,
+            "skill_count": 1,
+            "possession_count": 2,
+            "melee_line_count": 1,
+            "ranged_line_count": 1,
+            "spell_section_count": 0,
+            "spell_entry_count": 0,
+            "special_ability_count": 0,
+            "ordinary_entry_count": 0,
+            "spell_reference_count": 0,
+            "warning_count": 0
+        }
     }
 ]
