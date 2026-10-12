@@ -1,0 +1,597 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const { createRoll20Mock } = require('./roll20-sandbox-mock');
+
+const copy = (value) => JSON.parse(JSON.stringify(value));
+const attack = (raw) => ({ raw, fragments: [{ raw: raw.replace(/^(?:Melee|Ranged)\s+/, '') }] });
+
+function payload() {
+    return {
+        schema_version: 1,
+        creature: {
+            name: 'Lifecycle Mage', cr: '3',
+            header: { name: 'Lifecycle Mage', alignment_size_type: 'NE Medium humanoid (human)',
+                init_line: 'Init +2', classes: [{ name: 'wizard', level: 3 }], languages_line: 'Languages Common' },
+            defense: { ac_line: 'AC 15, touch 12, flat-footed 13', hp_line: 'hp 18 (3d4+6)',
+                fort_ref_will_line: 'Fort +3, Ref +3, Will +4' },
+            offense: { speed_line: 'Spd 30 ft.', base_attack_line: 'Base Atk +1; Grp +2',
+                melee_lines: [attack('Melee dagger +2 (1d4+1/19-20)')],
+                ranged_lines: [attack('Ranged light crossbow +3 (1d8/19-20)')],
+                spell_sections: [{ type: 'Wizard Spells Prepared', caster_level: '3rd',
+                    groups: [{ label: '1', spells: [{ name: 'Magic Missile', raw: 'magic missile', prepared_count: 2 },
+                        { name: 'Shield', raw: 'shield' }] }] }],
+                maneuvers: [{ name: 'Sapphire Nightmare Blade', level: 1, discipline: 'Diamond Mind',
+                    description: 'Test maneuver', readied: true }] },
+            statistics: { abilities_line: 'Abilities Str 12, Dex 14, Con 14, Int 16, Wis 12, Cha 10',
+                feats: ['Combat Casting'], skills: ['Concentration +8'], possessions: [] },
+            bio_notes: 'A fixture biography.'
+        }, warnings: []
+    };
+}
+
+function load(world, importer) {
+    const context = Object.assign({ console, Date, JSON, Math, RegExp, String, Number, Boolean, Array, Object,
+        parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent }, world.globals());
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(importer, 'utf8'), context, { filename: importer });
+    world.trigger('ready', {});
+    return context;
+}
+
+function harness(importer) {
+    const world = createRoll20Mock();
+    const context = load(world, importer);
+    function handout(data) {
+        const result = world.createObj('handout', { name: 'Lifecycle input' });
+        result.set('gmnotes', JSON.stringify(data));
+        return result;
+    }
+    function send(text, selected = [], flush = true, playerid = '-MOCKGM') {
+        world.trigger('chat:message', { type: 'api', playerid, content: '!d35import ' + text,
+            selected: selected.map((token) => ({ _type: 'graphic', _id: token.id })) });
+        if (flush) { world.flush(); }
+        return world.state.D35StatblockImporter && world.state.D35StatblockImporter.lastReport;
+    }
+    function token() {
+        return world.createObj('graphic', { _pageid: '-MOCKPAGE', subtype: 'token',
+            imgsrc: 'https://files.d20.io/images/12345/fixture/thumb.png?1', width: 70, height: 70,
+            layer: 'objects', left: 210, top: 280, light_hassight: true, statusmarkers: '' });
+    }
+    function create(data = payload(), selected = [], flags = '') {
+        const source = handout(data);
+        const report = send('import ' + source.id + flags, selected);
+        assert.ok(report && report.storedObjectsVerified, JSON.stringify(report && report.issues));
+        const character = world.getObj('character', report.characterId);
+        return { data, source, character, manifest: world.state.D35StatblockImporter.characters[character.id] };
+    }
+    function attr(character, name) {
+        return world.findObjs({ _type: 'attribute', _characterid: character.id, name })[0];
+    }
+    function objects() { return copy(world.objects.map((obj) => obj.toJSON())); }
+    return { world, context, handout, send, token, create, attr, objects,
+        report: () => world.state.D35StatblockImporter.lastReport };
+}
+
+function runLifecycleTests(importer) {
+    let count = 0;
+    function test(name, body) {
+        try { body(harness(importer)); count += 1; }
+        catch (error) { error.message = name + ': ' + error.message; throw error; }
+    }
+    function verified(report) { assert.strictEqual(report.status, 'verified', JSON.stringify(report.issues)); }
+    function issue(report, code) { assert.ok(report.issues.some((item) => item.code === code), JSON.stringify(report.issues)); }
+
+    test('managed update retains Character, Attribute, Ability and row IDs', (h) => {
+        const c = h.create();
+        const beforeOwned = copy(c.manifest.owned);
+        const beforeRows = copy(c.manifest.rows);
+        const nextSource = h.handout(c.data);
+        verified(h.send('update ' + c.character.id + ' ' + nextSource.id));
+        assert.strictEqual(h.report().touched.length, 0, 'no-change update should not issue object writes');
+        verified(h.send('update ' + c.character.id + ' ' + nextSource.id));
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 1);
+        assert.strictEqual(c.manifest.characterId, c.character.id);
+        assert.deepStrictEqual(copy(c.manifest.owned), beforeOwned);
+        assert.deepStrictEqual(copy(c.manifest.rows), beforeRows);
+        assert.strictEqual(c.manifest.sourceHandoutId, nextSource.id);
+        assert.strictEqual(c.manifest.revision, 3);
+    });
+
+    test('source spell order and content changes retain logical row identity', (h) => {
+        const c = h.create();
+        const rows = copy(c.manifest.rows);
+        const changed = copy(c.data);
+        changed.creature.offense.spell_sections[0].groups[0].spells.reverse();
+        changed.creature.offense.spell_sections[0].caster_level = '5th';
+        changed.creature.offense.maneuvers[0].description = 'Changed description';
+        verified(h.send('update ' + c.character.id + ' ' + h.handout(changed).id));
+        assert.deepStrictEqual(copy(c.manifest.rows), rows);
+    });
+
+    test('preview uses shared mappings without mutating Roll20 objects or verified baseline', (h) => {
+        const c = h.create();
+        const changed = copy(c.data);
+        changed.creature.defense.hp_line = 'hp 36 (6d4+12)';
+        const source = h.handout(changed);
+        const before = h.objects();
+        const baseline = copy(c.manifest);
+        const report = h.send('preview ' + c.character.id + ' ' + source.id);
+        assert.strictEqual(report.status, 'preview');
+        assert.strictEqual(report.plan.attributes.hitpoints.max, 36);
+        assert.strictEqual(report.storedObjectsVerified, false);
+        assert.deepStrictEqual(h.objects(), before);
+        assert.deepStrictEqual(copy(c.manifest), baseline);
+        const check = report.checks.find((item) => item.path === 'attribute.hitpoints.max');
+        assert.strictEqual(check.previous, 18);
+        assert.strictEqual(check.observed, 18);
+        assert.strictEqual(check.expected, 36);
+    });
+
+    test('obsolete owned rows, attacks, classes and Abilities are removed; manual content survives', (h) => {
+        const c = h.create();
+        const removedRow = Object.keys(c.manifest.rows).find((key) => key.includes('shield'));
+        const oldRowId = c.manifest.rows[removedRow];
+        const manual = h.world.createObj('attribute', { characterid: c.character.id, name: 'campaign_note', current: 'Keep me' });
+        const manualRowField = h.world.createObj('attribute', { characterid: c.character.id,
+            name: 'repeating_spells01_' + oldRowId + '_campaignnote', current: 'Manual row annotation' });
+        const ability = h.world.createObj('ability', { characterid: c.character.id, name: 'Manual Action', action: '/em hello', istokenaction: true });
+        const changed = copy(c.data);
+        changed.creature.header.classes = [];
+        changed.creature.offense.ranged_lines = [];
+        changed.creature.offense.spell_sections[0].groups[0].spells.pop();
+        verified(h.send('update ' + c.character.id + ' ' + h.handout(changed).id));
+        assert.ok(!h.attr(c.character, 'weapon2name'));
+        assert.ok(!h.attr(c.character, 'class1'));
+        assert.ok(!has(c.manifest.rows, removedRow));
+        assert.ok(h.world.getObj('attribute', manual.id));
+        assert.ok(h.world.getObj('attribute', manualRowField.id));
+        assert.ok(h.world.getObj('ability', ability.id));
+        assert.strictEqual(h.world.findObjs({ _type: 'ability', _characterid: c.character.id }).length, 2);
+        verified(h.send('audit ' + c.character.id));
+    });
+
+    test('Ability content updates in place', (h) => {
+        const c = h.create();
+        const key = Object.keys(c.manifest.owned.abilities)[0];
+        const id = c.manifest.owned.abilities[key];
+        const before = h.world.getObj('ability', id).get('action');
+        const changed = copy(c.data);
+        changed.creature.offense.melee_lines = [attack('Melee dagger +5 (1d4+2/19-20)')];
+        verified(h.send('update ' + c.character.id + ' ' + h.handout(changed).id));
+        assert.strictEqual(c.manifest.owned.abilities[key], id);
+        assert.notStrictEqual(h.world.getObj('ability', id).get('action'), before);
+    });
+
+    test('live play state, permissions and unowned default-token vision survive', (h) => {
+        const token = h.token();
+        const c = h.create(payload(), [token]);
+        ['hitpoint', 'hitpoints', 'npchitpoints'].forEach((name) => h.attr(c.character, name).set('current', 4));
+        const usedNames = Object.keys(c.manifest.baseline.attributes).filter((name) => /_(?:spellused|maneuverused|maneuverreadied|maneuvergranted)\d+$/.test(name));
+        assert.ok(usedNames.length >= 5);
+        usedNames.forEach((name) => h.attr(c.character, name).set('current', 7));
+        c.character.set({ controlledby: 'player-one', inplayerjournals: 'player-two' });
+        token.set({ bar1_value: 4, left: 900, top: 1000, rotation: 45, statusmarkers: 'dead',
+            light_hassight: false, bright_light_distance: 30, tint_color: '#ff0000', layer: 'gmlayer' });
+        const defaultData = JSON.parse(c.character._attrs._defaulttoken);
+        defaultData.light_hassight = true;
+        defaultData.bright_light_distance = 60;
+        c.character._attrs._defaulttoken = JSON.stringify(defaultData);
+        const beforeToken = copy(token.toJSON());
+        const changed = copy(c.data);
+        changed.creature.defense.hp_line = 'hp 36 (6d4+12)';
+        verified(h.send('update ' + c.character.id + ' ' + h.handout(changed).id));
+        ['hitpoint', 'hitpoints', 'npchitpoints'].forEach((name) => assert.strictEqual(h.attr(c.character, name).get('current'), 4));
+        usedNames.forEach((name) => assert.strictEqual(h.attr(c.character, name).get('current'), 7));
+        assert.strictEqual(h.attr(c.character, 'hitpoints').get('max'), 36);
+        assert.strictEqual(c.character.get('controlledby'), 'player-one');
+        assert.strictEqual(c.character.get('inplayerjournals'), 'player-two');
+        assert.deepStrictEqual(copy(token.toJSON()), beforeToken);
+        const saved = JSON.parse(c.character._attrs._defaulttoken);
+        assert.strictEqual(saved.bar1_value, 36);
+        assert.strictEqual(saved.light_hassight, true);
+        assert.strictEqual(saved.bright_light_distance, 60);
+        assert.strictEqual(h.report().sheetCalculationsVerified, false);
+    });
+
+    test('manual edits to managed values block the entire update and preserve baseline', (h) => {
+        const c = h.create();
+        h.attr(c.character, 'str').set('current', 99);
+        const baseline = copy(c.manifest.baseline);
+        const before = h.objects();
+        const report = h.send('update ' + c.character.id + ' ' + c.source.id);
+        issue(report, 'conflict');
+        assert.strictEqual(report.status, 'conflict');
+        assert.deepStrictEqual(h.objects(), before);
+        assert.deepStrictEqual(copy(c.manifest.baseline), baseline);
+        assert.strictEqual(c.manifest.revision, 1);
+        const conflict = report.issues.find((item) => item.path === 'attribute.str.current');
+        assert.strictEqual(conflict.expected, 12);
+        assert.strictEqual(conflict.observed, 99);
+    });
+
+    test('edited owned Ability, biography, and obsolete fields conflict before cleanup', (h) => {
+        const c = h.create();
+        const id = Object.values(c.manifest.owned.abilities)[0];
+        h.world.getObj('ability', id).set('action', '/em manually changed');
+        c.character.set('bio', 'Manual biography');
+        h.attr(c.character, 'weapon2name').set('current', 'Manual weapon');
+        const changed = copy(c.data);
+        changed.creature.offense.ranged_lines = [];
+        const report = h.send('update ' + c.character.id + ' ' + h.handout(changed).id);
+        assert.ok(report.issues.filter((item) => item.code === 'conflict').length >= 3);
+        assert.ok(h.world.getObj('ability', id));
+        assert.ok(h.attr(c.character, 'weapon2name'));
+    });
+
+    test('new mappings cannot claim an unowned Attribute or Ability', (h) => {
+        const c = h.create();
+        h.world.createObj('attribute', { characterid: c.character.id, name: 'class2', current: 'Manual Class' });
+        h.world.createObj('ability', { characterid: c.character.id, name: 'Longsword', action: 'manual' });
+        const changed = copy(c.data);
+        changed.creature.header.classes.push({ name: 'fighter', level: 1 });
+        changed.creature.offense.melee_lines.push(attack('Melee longsword +3 (1d8+1/19-20)'));
+        const report = h.send('update ' + c.character.id + ' ' + h.handout(changed).id);
+        issue(report, 'unowned-collision');
+        assert.strictEqual(h.attr(c.character, 'class2').get('current'), 'Manual Class');
+    });
+
+    test('adoption explicitly claims only matching mapped objects with no sheet writes', (h) => {
+        const c = h.create();
+        const oldRows = copy(c.manifest.rows);
+        delete h.world.state.D35StatblockImporter.characters[c.character.id];
+        const before = h.objects();
+        verified(h.send('adopt ' + c.character.id + ' ' + c.source.id));
+        assert.deepStrictEqual(h.objects(), before);
+        const adopted = h.world.state.D35StatblockImporter.characters[c.character.id];
+        assert.deepStrictEqual(copy(adopted.rows), oldRows);
+        verified(h.send('update ' + c.character.id + ' ' + c.source.id));
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 1);
+    });
+
+    test('adoption mismatch and ambiguous existing repeating rows are rejected', (h) => {
+        const c = h.create();
+        delete h.world.state.D35StatblockImporter.characters[c.character.id];
+        h.attr(c.character, 'str').set('current', 99);
+        issue(h.send('adopt ' + c.character.id + ' ' + c.source.id), 'adoption-mismatch');
+        assert.ok(!h.world.state.D35StatblockImporter.characters[c.character.id]);
+        h.attr(c.character, 'str').set('current', 12);
+        const spellName = Object.keys(c.manifest.baseline.attributes).find((name) => /_spellname\d+$/.test(name));
+        h.world.createObj('attribute', { characterid: c.character.id, name: spellName.replace(/_-[^_]+_/, '_-MANUALCOPY_'),
+            current: h.attr(c.character, spellName).get('current') });
+        assert.strictEqual(h.send('adopt ' + c.character.id + ' ' + c.source.id).status, 'blocked');
+        assert.ok(!h.world.state.D35StatblockImporter.characters[c.character.id]);
+    });
+
+    test('names cannot establish ownership or target updates', (h) => {
+        const c = h.create();
+        const before = h.objects();
+        assert.strictEqual(h.send('update LifecycleMage ' + c.source.id).status, 'blocked');
+        delete h.world.state.D35StatblockImporter.characters[c.character.id];
+        assert.strictEqual(h.send('update ' + c.character.id + ' ' + c.source.id).status, 'blocked');
+        assert.deepStrictEqual(h.objects(), before);
+        const another = h.create(c.data);
+        assert.notStrictEqual(another.character.id, c.character.id);
+    });
+
+    test('token selection is unambiguous and explicit ID takes precedence', (h) => {
+        const a = h.token();
+        const b = h.token();
+        const source = h.handout(payload());
+        assert.strictEqual(h.send('import ' + source.id, [a, b]).status, 'blocked');
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 0);
+        verified(h.send('import ' + source.id + ' --token ' + a.id, [a, b]));
+        assert.strictEqual(a.get('represents'), h.report().characterId);
+        assert.strictEqual(b.get('represents'), '');
+    });
+
+    test('binding repeats safely, preserves current HP, and portrait replacement is explicit', (h) => {
+        const c = h.create();
+        c.character.set('avatar', 'https://files.d20.io/images/999/portrait/med.png?1');
+        const token = h.token();
+        verified(h.send('bind ' + c.character.id, [token]));
+        assert.strictEqual(c.character.get('avatar'), 'https://files.d20.io/images/999/portrait/med.png?1');
+        token.set('bar1_value', 3);
+        verified(h.send('bind ' + c.character.id + ' --token ' + token.id + ' --avatar'));
+        assert.strictEqual(token.get('bar1_value'), 3);
+        assert.strictEqual(token.get('bar1_link'), '');
+        assert.strictEqual(token.get('bar2_link'), '');
+        assert.strictEqual(c.character.get('avatar'), 'https://files.d20.io/images/12345/fixture/med.png?1');
+        assert.strictEqual(JSON.parse(c.character._attrs._defaulttoken).bar1_value, 18);
+        assert.strictEqual(h.world.findObjs({ _type: 'graphic' }).length, 1, 'capture graphic leaked');
+    });
+
+    test('invalid images, token types and other-Character bindings fail before mutation', (h) => {
+        const source = h.handout(payload());
+        const token = h.token();
+        token.set('represents', '-OTHER');
+        assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
+        token.set({ represents: '', imgsrc: 'https://external.example/test.png' });
+        assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
+        token.set({ imgsrc: 'https://files.d20.io/images/12345/fixture/thumb.png?1', subtype: 'card' });
+        assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 0);
+    });
+
+    ['missing', 'incorrect'].forEach((failure) => test('default-token ' + failure + ' capture fails readback', (h) => {
+        h.world.defaultCapture = failure;
+        const source = h.handout(payload());
+        const report = h.send('import ' + source.id, [h.token()]);
+        assert.strictEqual(report.status, 'readback-failed');
+        assert.strictEqual(report.storedObjectsVerified, false);
+        const manifest = h.world.state.D35StatblockImporter.characters[report.characterId];
+        assert.strictEqual(manifest.baseline, null);
+        assert.strictEqual(manifest.revision, 0);
+        assert.ok(manifest.pending);
+        assert.strictEqual(h.world.findObjs({ _type: 'graphic' }).length, 1);
+    }));
+
+    test('failed update readback retains verified baseline and can be audited after correction', (h) => {
+        const token = h.token();
+        const c = h.create(payload(), [token]);
+        const baseline = copy(c.manifest.baseline);
+        const changed = copy(c.data);
+        changed.creature.defense.hp_line = 'hp 36 (6d4+12)';
+        const source = h.handout(changed);
+        h.world.defaultCapture = 'missing';
+        assert.strictEqual(h.send('update ' + c.character.id + ' ' + source.id).status, 'readback-failed');
+        assert.deepStrictEqual(copy(c.manifest.baseline), baseline);
+        assert.strictEqual(c.manifest.revision, 1);
+        assert.strictEqual(h.send('update ' + c.character.id + ' ' + source.id).status, 'blocked');
+        c.character._attrs._defaulttoken = JSON.stringify(c.manifest.pending.plan.defaultToken);
+        verified(h.send('audit ' + c.character.id));
+        assert.strictEqual(c.manifest.revision, 2);
+        assert.ok(!c.manifest.pending);
+        h.world.defaultCapture = 'normal';
+        verified(h.send('update ' + c.character.id + ' ' + source.id));
+    });
+
+    test('audit detects missing, duplicate and mismatched Attributes and Abilities', (h) => {
+        const c = h.create();
+        h.attr(c.character, 'str').remove();
+        const dex = h.attr(c.character, 'dex');
+        h.world.createObj('attribute', { characterid: c.character.id, name: 'dex', current: dex.get('current'), max: '' });
+        h.attr(c.character, 'npcarmorclass').set('current', 99);
+        const ability = h.world.getObj('ability', Object.values(c.manifest.owned.abilities)[0]);
+        h.world.createObj('ability', { characterid: c.character.id, name: ability.get('name'), action: ability.get('action'), istokenaction: true });
+        const report = h.send('audit ' + c.character.id);
+        issue(report, 'missing');
+        issue(report, 'duplicate');
+        issue(report, 'mismatch');
+        assert.strictEqual(c.manifest.revision, 1);
+        assert.strictEqual(report.status, 'audit-failed');
+    });
+
+    test('audit detects copied logical repeating rows', (h) => {
+        const c = h.create();
+        const name = Object.keys(c.manifest.baseline.attributes).find((field) => /_spellname\d+$/.test(field));
+        h.world.createObj('attribute', { characterid: c.character.id, name: name.replace(/_-[^_]+_/, '_-COPY_'),
+            current: c.manifest.baseline.attributes[name].current });
+        issue(h.send('audit ' + c.character.id), 'duplicate-row');
+    });
+
+    test('failed removal is reported as stale and does not advance the baseline', (h) => {
+        const c = h.create();
+        const staleId = c.manifest.owned.attributes.weapon2name;
+        const changed = copy(c.data);
+        changed.creature.offense.ranged_lines = [];
+        h.world.hooks.beforeRemove = (obj) => obj.id === staleId ? false : undefined;
+        const report = h.send('update ' + c.character.id + ' ' + h.handout(changed).id);
+        issue(report, 'stale');
+        assert.strictEqual(c.manifest.revision, 1);
+        issue(h.send('audit ' + c.character.id), 'stale');
+    });
+
+    test('partial write failure is journaled and retains the previous baseline', (h) => {
+        const c = h.create();
+        const before = copy(c.manifest.baseline);
+        h.world.hooks.beforeSet = (obj) => { if (obj.get('_type') === 'attribute' && obj.get('name') === 'npcstr') { throw new Error('Injected write failure'); } };
+        const changed = copy(c.data);
+        changed.creature.statistics.abilities_line = changed.creature.statistics.abilities_line.replace('Str 12', 'Str 14');
+        const report = h.send('update ' + c.character.id + ' ' + h.handout(changed).id);
+        assert.strictEqual(report.status, 'partial-failure');
+        assert.ok(report.touched.length > 0 && report.touched.length <= 5000);
+        assert.ok(c.manifest.pending);
+        assert.deepStrictEqual(copy(c.manifest.baseline), before);
+        assert.strictEqual(c.manifest.revision, 1);
+    });
+
+    test('per-Character lock prevents overlapping updates', (h) => {
+        const c = h.create();
+        h.send('update ' + c.character.id + ' ' + c.source.id, [], false);
+        const second = h.send('update ' + c.character.id + ' ' + c.source.id, [], false);
+        assert.strictEqual(second.status, 'busy');
+        h.world.flush();
+        verified(h.report());
+        assert.strictEqual(c.manifest.revision, 2);
+    });
+
+    test('overlapping creates on one source are locked', (h) => {
+        const source = h.handout(payload());
+        h.send('import ' + source.id, [], false);
+        assert.strictEqual(h.send('import ' + source.id, [], false).status, 'busy');
+        h.world.flush();
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 1);
+    });
+
+    test('asynchronous read timeout releases operation lock without writes', (h) => {
+        const c = h.create();
+        const before = h.objects();
+        h.world.suspendBlobs = true;
+        assert.strictEqual(h.send('update ' + c.character.id + ' ' + c.source.id).status, 'blocked');
+        assert.deepStrictEqual(h.objects(), before);
+        h.world.suspendBlobs = false;
+        verified(h.send('update ' + c.character.id + ' ' + c.source.id));
+    });
+
+    test('state survives sandbox restart and failed pending operations remain guarded', (h) => {
+        const token = h.token();
+        const c = h.create(payload(), [token]);
+        h.world.defaultCapture = 'incorrect';
+        assert.strictEqual(h.send('bind ' + c.character.id, [token]).status, 'readback-failed');
+        h.world.handlers.ready = [];
+        h.world.handlers['chat:message'] = [];
+        load(h.world, importer);
+        assert.strictEqual(h.send('update ' + c.character.id + ' ' + c.source.id).status, 'blocked');
+        assert.strictEqual(c.manifest.revision, 1);
+    });
+
+    test('numeric and image URL normalization accepts equivalent stored representations', (h) => {
+        const token = h.token();
+        const c = h.create(payload(), [token], ' --avatar');
+        h.world.findObjs({ _type: 'attribute', _characterid: c.character.id }).forEach((attr) => {
+            attr.set({ current: String(attr.get('current')), max: String(attr.get('max')) });
+        });
+        const saved = JSON.parse(c.character._attrs._defaulttoken);
+        saved.imgsrc = saved.imgsrc.replace('https://files.d20.io/', 'https://s3.amazonaws.com/files.d20.io/').replace('/thumb.', '/max.').replace('?1', '?999');
+        saved.width = String(saved.width);
+        c.character._attrs._defaulttoken = JSON.stringify(saved);
+        c.character.set('avatar', c.character.get('avatar').replace('/med.', '/original.').replace('?1', '?20'));
+        verified(h.send('audit ' + c.character.id));
+    });
+
+    test('GM authorization gates mutating commands and report exports', (h) => {
+        const c = h.create();
+        const before = h.objects();
+        ['update ' + c.character.id + ' ' + c.source.id, 'adopt ' + c.character.id + ' ' + c.source.id,
+            'bind ' + c.character.id, 'import ' + c.source.id, 'report'].forEach((command) => h.send(command, [], true, '-PLAYER'));
+        assert.deepStrictEqual(h.objects(), before);
+        assert.ok(h.world.chat.filter((entry) => /GM authorization is required/.test(entry.message)).length >= 5);
+    });
+
+    test('report export contains expected and observed JSON in a GM-only handout', (h) => {
+        const c = h.create();
+        h.send('audit ' + c.character.id);
+        h.send('report');
+        const reportHandout = h.world.getObj('handout', h.world.state.D35StatblockImporter.reportHandoutId);
+        assert.strictEqual(reportHandout.get('inplayerjournals'), '');
+        assert.strictEqual(reportHandout.get('controlledby'), '');
+        assert.ok(reportHandout._attrs.gmnotes.includes('&quot;expected&quot;'));
+        assert.ok(reportHandout._attrs.gmnotes.includes('&quot;observed&quot;'));
+        reportHandout.set('inplayerjournals', 'all');
+        const before = reportHandout._attrs.gmnotes;
+        h.send('report');
+        assert.strictEqual(reportHandout._attrs.gmnotes, before);
+        assert.ok(h.world.chat.some((entry) => /shared manually/.test(entry.message)));
+    });
+
+    test('mock enforces asynchronous blobs and supported default-token writes', (h) => {
+        const c = h.create();
+        assert.throws(() => c.character.get('bio'), /callback/);
+        assert.throws(() => c.character.get('_defaulttoken'), /callback/);
+        assert.throws(() => c.character.set('defaulttoken', '{}'), /read-only/);
+        assert.throws(() => c.character.set('_defaulttoken', '{}'), /read-only/);
+        h.context.setDefaultTokenForCharacter = undefined;
+        const source = h.handout(payload());
+        assert.strictEqual(h.send('import ' + source.id, [h.token()]).status, 'blocked');
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 1);
+    });
+
+    test('malformed required schema sections fail preflight', (h) => {
+        const data = payload();
+        delete data.creature.offense;
+        const report = h.send('import ' + h.handout(data).id);
+        assert.strictEqual(report.status, 'blocked');
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 0);
+    });
+
+    test('newly mapped biography cannot overwrite unowned manual text', (h) => {
+        const data = payload();
+        data.creature.bio_notes = '';
+        const c = h.create(data);
+        assert.ok(!has(c.manifest.baseline.character, 'bio'));
+        c.character.set('bio', 'Manual narrative');
+        const changed = copy(data);
+        changed.creature.bio_notes = 'New source narrative';
+        const report = h.send('update ' + c.character.id + ' ' + h.handout(changed).id);
+        issue(report, 'unowned-collision');
+        assert.strictEqual(c.character._attrs.bio, 'Manual narrative');
+        assert.strictEqual(c.manifest.revision, 1);
+    });
+
+    test('new row expenditure is initialized and read back on an update', (h) => {
+        const c = h.create();
+        const changed = copy(c.data);
+        changed.creature.offense.spell_sections[0].groups[0].spells.push({ name: 'Mage Armor', raw: 'mage armor' });
+        h.world.hooks.afterCreate = (obj) => {
+            if (obj.get('_type') === 'attribute' && /_spellused\d+$/.test(obj.get('name'))) { obj._attrs.current = '99'; }
+        };
+        const report = h.send('update ' + c.character.id + ' ' + h.handout(changed).id);
+        issue(report, 'mismatch');
+        assert.strictEqual(report.status, 'readback-failed');
+        assert.strictEqual(c.manifest.revision, 1);
+    });
+
+    test('default capture failure cleans up its temporary graphic and journals the failure', (h) => {
+        const c = h.create();
+        const token = h.token();
+        h.world.defaultCapture = 'throw';
+        const report = h.send('bind ' + c.character.id, [token]);
+        assert.strictEqual(report.status, 'partial-failure');
+        assert.strictEqual(h.world.findObjs({ _type: 'graphic' }).length, 1);
+        assert.ok(report.touched.some((entry) => entry.action === 'temporary-create'));
+        assert.ok(report.touched.some((entry) => entry.action === 'temporary-remove'));
+        assert.strictEqual(c.manifest.revision, 1);
+    });
+
+    test('missing token page is rejected before Character creation', (h) => {
+        const token = h.token();
+        h.world.getObj('page', '-MOCKPAGE').remove();
+        assert.strictEqual(h.send('import ' + h.handout(payload()).id, [token]).status, 'blocked');
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 0);
+    });
+
+    test('a token rebound by another Mod after preflight is not overwritten', (h) => {
+        const token = h.token();
+        h.world.hooks.afterCreate = (obj) => {
+            if (obj.get('_type') === 'character') { token.set('represents', '-OTHER-CHARACTER'); }
+        };
+        const report = h.send('import ' + h.handout(payload()).id, [token]);
+        assert.strictEqual(report.status, 'partial-failure');
+        assert.strictEqual(token.get('represents'), '-OTHER-CHARACTER');
+        const manifest = h.world.state.D35StatblockImporter.characters[report.characterId];
+        assert.ok(manifest.pending);
+        assert.strictEqual(manifest.baseline, null);
+    });
+
+    test('array-shaped required sections are rejected before mutation', (h) => {
+        const data = payload();
+        data.creature.offense = [];
+        assert.strictEqual(h.send('import ' + h.handout(data).id).status, 'blocked');
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 0);
+    });
+
+    test('legacy import retains exact handout-name spacing', (h) => {
+        const source = h.handout(payload());
+        source.set('name', 'Fixture  with  double spaces');
+        verified(h.send('import Fixture  with  double spaces'));
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 1);
+    });
+
+    test('special-spell usage groups have stable independent row identities', (h) => {
+        const data = payload();
+        data.creature.offense.spell_sections.push({ type: 'Spell-Like Abilities', caster_level: '3rd', groups: [
+            { label: 'At will', spells: [{ name: 'Detect Magic', raw: 'detect magic' }] },
+            { label: '3/day', spells: [{ name: 'Detect Magic', raw: 'detect magic' }] }
+        ] });
+        const c = h.create(data);
+        const rows = copy(c.manifest.rows);
+        const keys = Object.keys(rows).filter((key) => key.includes('detect magic'));
+        assert.strictEqual(keys.length, 2);
+        assert.ok(keys.some((key) => key.includes('at will')));
+        assert.ok(keys.some((key) => key.includes('3/day')));
+        const changed = copy(data);
+        changed.creature.offense.spell_sections[1].groups.reverse();
+        verified(h.send('update ' + c.character.id + ' ' + h.handout(changed).id));
+        assert.deepStrictEqual(copy(c.manifest.rows), rows);
+    });
+
+    console.log('Managed lifecycle tests passed: ' + count + ' scenario(s).');
+    return count;
+}
+
+function has(object, key) { return Object.prototype.hasOwnProperty.call(object, key); }
+
+module.exports = { runLifecycleTests };

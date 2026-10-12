@@ -1,12 +1,12 @@
 {
   "project": "D35 Statblock Importer",
-  "release_version": "0.4.1",
+  "release_version": "0.5.0",
   "workspace_root": ".",
   "versions": [
     {
       "id": "current_chat_version",
       "name": "D35StatblockImporter",
-      "version": "0.4.1",
+      "version": "0.5.0",
       "source": "user_pasted_chat_script",
       "file": "D35_Statblock_Importer.js",
       "notes": [

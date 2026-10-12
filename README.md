@@ -93,7 +93,7 @@ This importer needs a Roll20 game using the compatible D&D 3.5 character sheet. 
 
 The importer creates the character, fills in the converted data, and binds the selected token to that character. It also sets the token’s health and AC bars. Open the character sheet afterward and quickly check the name, CR, AC, hit points, attacks, skills, and spells.
 
-If a creature needs manual correction, edit the source stat block, reconvert it, and import the new handout rather than trying to repair raw JSON by hand.
+If a creature needs correction, edit the source stat block and reconvert it. With importer 0.5.0, use `!d35import preview <character-id> <handout-id>` and then `!d35import update <character-id> <handout-id>` to update the same managed Character. See [Managed Lifecycle v1](docs/managed-lifecycle-v1.md) for ownership, adoption, token binding, and audit commands.
 
 ### Convert a single stat block to Roll20 handout JSON
 
@@ -199,3 +199,7 @@ The original converter code and documentation are released under the [MIT Licens
 ## Credits
 
 Created and maintained by Caleb M. Powers. Developed with implementation, testing, and documentation assistance from OpenAI Codex.
+
+## Managed Lifecycle v1 (0.5.0)
+
+Imports create managed Characters. Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Token images are copied to the Character portrait only with `--avatar`. Existing Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md).

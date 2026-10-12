@@ -2,7 +2,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'D35 Statblock Importer';
-    var VERSION = '0.4.1';
+    var VERSION = '0.5.0';
     var COMMAND = '!d35import';
     var COMMAND_ALIASES = ['!d35import', '!d35importer', '!d35'];
     var PING_COMMAND = '!d35ping';
@@ -436,7 +436,7 @@
 
     function parseCommand(content, matchedCommand) {
         var body = trim(String(content || '').slice(matchedCommand.length));
-        if (!body) {
+        if (!body || body === '--help' || body === '-h') {
             return { verb: 'help', target: '' };
         }
 
@@ -447,7 +447,7 @@
 
         var verb = verbMatch[1].toLowerCase();
         var target = trim(verbMatch[2] || '');
-        if (verb === 'help' || verb === 'validate' || verb === 'import' || verb === 'bind') {
+        if (verb === 'help' || verb === 'validate' || verb === 'create' || verb === 'import' || verb === 'bind' || verb === 'preview' || verb === 'update' || verb === 'adopt' || verb === 'audit' || verb === 'report') {
             return { verb: verb, target: target };
         }
         return { verb: 'import', target: body };
@@ -2937,6 +2937,13 @@
         return parts.join('\n\n');
     }
 
+    function hasRequiredSections(payload) {
+        var creature = payload && payload.creature;
+        return creature && ['header', 'defense', 'offense', 'statistics'].every(function (section) {
+            return creature[section] && typeof creature[section] === 'object' && !Array.isArray(creature[section]);
+        });
+    }
+
     function validateModel(model) {
         var issues = [];
         if (!model.name) {
@@ -2945,7 +2952,7 @@
         if (!model.payload || model.payload.schema_version !== 1) {
             issues.push('Unsupported or missing schema_version. Expected 1.');
         }
-        if (!model.creature || !model.creature.header || !model.defenseSection || !model.offenseSection || !model.statisticsSection) {
+        if (!hasRequiredSections(model.payload)) {
             issues.push('Unsupported JSON structure. Expected a converted payload with creature.header, creature.defense, creature.offense, and creature.statistics.');
         }
         if (!model.hp.max) {
@@ -2967,51 +2974,33 @@
             model.payload.schema_version !== 1 ||
             !model.creature ||
             !model.creature.header ||
+            !hasRequiredSections(model.payload) ||
             !model.defenseSection ||
             !model.offenseSection ||
             !model.statisticsSection ||
             !model.hp.max;
     }
 
-    function findOrCreateAttr(characterId, name) {
-        var attr = findObjs({
-            _type: 'attribute',
-            characterid: characterId,
-            name: name
-        })[0];
-        if (attr) {
-            return attr;
-        }
-        return createObj('attribute', {
-            characterid: characterId,
-            name: name,
-            current: ''
-        });
-    }
-
-    function setAttr(characterId, name, current, max) {
-        var attr = findOrCreateAttr(characterId, name);
-        attr.set('current', current === null || current === undefined ? '' : current);
-        if (max !== undefined) {
-            attr.set('max', max === null || max === undefined ? '' : max);
-        }
-        return attr;
-    }
-
-    function bulkSetAttrs(characterId, attrs) {
+    function addPlanAttrs(plan, attrs) {
         Object.keys(attrs).forEach(function (name) {
-            setAttr(characterId, name, attrs[name]);
+            plan.attributes[name] = { current: attrs[name], max: '' };
         });
     }
 
-    function createAbility(characterId, name, action, tokenAction) {
-        return createObj('ability', {
-            _characterid: characterId,
-            characterid: characterId,
-            name: name,
-            action: action,
-            istokenaction: tokenAction ? true : false
-        });
+    function addPlanAbility(plan, name, action, tokenAction) {
+        var key = normalizeLookupText(name);
+        if (plan.abilities[key]) {
+            throw new Error('Ambiguous generated Ability identity: ' + name);
+        }
+        plan.abilities[key] = { name: name, action: action, istokenaction: !!tokenAction };
+    }
+
+    function allocateManagedRow(plan, identity) {
+        var occurrence = (plan.rowOccurrences[identity] || 0) + 1;
+        var key = identity + '|' + occurrence;
+        plan.rowOccurrences[identity] = occurrence;
+        plan.rows[key] = plan.previousRows[key] || generateRowId();
+        return plan.rows[key];
     }
 
     function buildAcSlotAttrs(model) {
@@ -3131,7 +3120,7 @@
         return '@{wis-mod}';
     }
 
-    function buildSpellAttrs(model) {
+    function buildSpellAttrs(model, plan) {
         var attrs = {
             spellmode: 2
         };
@@ -3145,7 +3134,7 @@
             var casterLevel = parseCasterLevel(entry.casterLevel);
             var spell = entry.spell;
             var suffix;
-            var rowId = generateRowId();
+            var rowId = allocateManagedRow(plan, ['spell', entry.sectionKind, normalizeLookupText(entry.sectionType), entry.level, normalizeLookupText(spell.name), entry.sectionKind === 'special' || entry.level === null ? normalizeLookupText(entry.usage) : ''].join('|'));
             var level = entry.level;
             var preparedCount = entry.preparedCount ? String(entry.preparedCount) : '';
             var perDayValue = extractSpellPerDayValue(entry);
@@ -3217,10 +3206,10 @@
         return attrs;
     }
 
-    function buildManeuverAttrs(model) {
+    function buildManeuverAttrs(model, plan) {
         var attrs = {};
         asArray(model.maneuvers).forEach(function (maneuver) {
-            var rowId = generateRowId();
+            var rowId = allocateManagedRow(plan, ['maneuver', normalizeLookupText(maneuver.name), maneuver.level, normalizeLookupText(maneuver.discipline || maneuver.school)].join('|'));
             var name = trim(maneuver.name || '');
             var macro = trim(maneuver.macro_text || maneuver.macro || '');
             var suffix = '45';
@@ -3254,8 +3243,12 @@
         }).join(', ');
     }
 
-    function applyModelToCharacter(character, model) {
-        var characterId = character.id;
+    function buildWritePlan(model, manifest) {
+        var plan = {
+            character: { name: model.name }, attributes: {}, abilities: {}, rows: {},
+            rowOccurrences: {}, previousRows: manifest && manifest.rows || {},
+            tokenPolicy: buildTokenPolicy(model.name, model.hp.current || model.hp.max, model.ac.total)
+        };
         var header = model.normalizedHeader;
         var identity = model.identity || { race: '', classes: [] };
         var strMod = abilityMod(model.abilities.str || 10);
@@ -3391,19 +3384,19 @@
             npcAttrs['npclevel' + slot] = entry.level;
         });
 
-        bulkSetAttrs(characterId, pcAttrs);
-        bulkSetAttrs(characterId, npcAttrs);
-        bulkSetAttrs(characterId, buildAcSlotAttrs(model));
-        bulkSetAttrs(characterId, model.skillImport.attrs || {});
-        bulkSetAttrs(characterId, buildSpellAttrs(model));
-        bulkSetAttrs(characterId, buildManeuverAttrs(model));
-        setAttr(characterId, 'hitpoints', importedHp, importedHp);
-        setAttr(characterId, 'npchitpoints', importedHp, importedHp);
+        addPlanAttrs(plan, pcAttrs);
+        addPlanAttrs(plan, npcAttrs);
+        addPlanAttrs(plan, buildAcSlotAttrs(model));
+        addPlanAttrs(plan, model.skillImport.attrs || {});
+        addPlanAttrs(plan, buildSpellAttrs(model, plan));
+        addPlanAttrs(plan, buildManeuverAttrs(model, plan));
+        plan.attributes.hitpoints.max = importedHp;
+        plan.attributes.npchitpoints.max = importedHp;
         for (i = 0; i < Math.min(model.weapons.length, MAX_PC_WEAPONS); i += 1) {
-            bulkSetAttrs(characterId, buildPcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
+            addPlanAttrs(plan, buildPcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
         }
         for (i = 0; i < Math.min(model.weapons.length, MAX_NPC_ATTACKS); i += 1) {
-            bulkSetAttrs(characterId, buildNpcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
+            addPlanAttrs(plan, buildNpcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
         }
 
         var preferredStandaloneIndexes = getPreferredStandaloneWeaponIndexes(model);
@@ -3412,28 +3405,31 @@
             var countBasedFullAttackBonuses = getCountBasedFullAttackBonuses(weapon);
             if (prefix) {
                 if (shouldCreateWeaponTokenAction(weapon) && preferredStandaloneIndexes[index]) {
-                    createAbility(characterId, weapon.displayName, buildTokenActionMacro(model.name, weapon, model), true);
+                    addPlanAbility(plan, weapon.displayName, buildTokenActionMacro(model.name, weapon, model), true);
                 }
                 if (shouldCreateWeaponTokenAction(weapon) && countBasedFullAttackBonuses.length) {
-                    createAbility(characterId, weapon.displayName + ' Full Attack', buildTokenActionMacro(model.name, weapon, model, countBasedFullAttackBonuses, 'Full Attack with ' + weapon.displayName), true);
+                    addPlanAbility(plan, weapon.displayName + ' Full Attack', buildTokenActionMacro(model.name, weapon, model, countBasedFullAttackBonuses, 'Full Attack with ' + weapon.displayName), true);
                 }
             }
         });
 
         if (model.textBundles.bio) {
-            character.set('bio', model.textBundles.bio);
+            plan.character.bio = model.textBundles.bio;
         }
+        if (manifest && manifest.baseline) {
+            Object.keys(manifest.baseline.character).forEach(function (field) {
+                if (!Object.prototype.hasOwnProperty.call(plan.character, field)) {
+                    plan.character[field] = field === 'avatar' ? manifest.baseline.character[field] : '';
+                }
+            });
+        }
+        delete plan.previousRows;
+        delete plan.rowOccurrences;
+        return plan;
     }
 
     function generateRowId() {
-        return '-' + Date.now().toString(36) + Math.floor(Math.random() * 999999).toString(36);
-    }
-
-    function getSelectedGraphic(msg) {
-        if (!msg.selected || !msg.selected.length) {
-            return null;
-        }
-        return getObj('graphic', msg.selected[0]._id);
+        return '-' + Date.now().toString(36) + ('00000000' + (++rowSequence).toString(36)).slice(-8) + Math.floor(Math.random() * 999999).toString(36);
     }
 
     function normalizeRoll20ImageUrl(imgsrc, size) {
@@ -3456,66 +3452,6 @@
             String(imgsrc || '');
     }
 
-    function configureTokenForCharacter(token, character, hpValue, acValue, characterName) {
-        var rawImgsrc = token.get('imgsrc');
-        var imgsrc = cleanImgsrc(rawImgsrc);
-        var avatarImgsrc = buildAvatarImgsrc(rawImgsrc);
-        var tokenData;
-        if (!imgsrc) {
-            return { ok: false, reason: 'Selected token does not have a usable image source.' };
-        }
-
-        token.set({
-            name: characterName,
-            represents: character.id,
-            bar1_link: '',
-            bar1_value: hpValue || '',
-            bar1_max: hpValue || '',
-            bar2_link: '',
-            bar2_value: acValue || '',
-            bar2_max: '',
-            showname: false,
-            showplayers_name: false,
-            showplayers_bar1: false,
-            showplayers_bar2: false
-        });
-
-        if (avatarImgsrc) {
-            character.set('avatar', avatarImgsrc);
-        }
-
-        tokenData = {
-            imgsrc: imgsrc,
-            name: characterName,
-            represents: character.id,
-            width: token.get('width'),
-            height: token.get('height'),
-            layer: 'objects',
-            bar1_link: '',
-            bar1_value: hpValue || '',
-            bar1_max: hpValue || '',
-            bar2_link: '',
-            bar2_value: acValue || '',
-            bar2_max: '',
-            showname: false,
-            showplayers_name: false,
-            light_hassight: token.get('light_hassight'),
-            showplayers_bar1: false,
-            showplayers_bar2: false,
-            tint_color: token.get('tint_color')
-        };
-        if (typeof setDefaultTokenForCharacter === 'function') {
-            setDefaultTokenForCharacter(character, token);
-        } else {
-            character.set('defaulttoken', JSON.stringify(tokenData));
-        }
-        return {
-            ok: true,
-            avatarSet: !!avatarImgsrc,
-            avatarReason: avatarImgsrc ? '' : 'Selected token does not have a usable image source for the avatar field.'
-        };
-    }
-
     function summarizeModel(model) {
         return [
             'Creature: ' + model.name,
@@ -3527,54 +3463,6 @@
             'HP: ' + (model.hp.current || model.hp.max || '?'),
             'AC: ' + (model.ac.total !== null ? model.ac.total : '?')
         ];
-    }
-
-    function importModelFromHandout(handout, msg) {
-        loadHandoutPayload(handout, function (payloadText) {
-            var payload;
-            var model;
-            var issues;
-            var character;
-            var selectedToken;
-            var bindResult;
-
-            if (!payloadText) {
-                sendGM(renderList('Import Failed', ['The handout is empty or does not contain JSON.']));
-                return;
-            }
-
-            try {
-                payload = tryParsePayload(payloadText);
-            } catch (error) {
-                sendGM(renderList('Import Failed', ['JSON parse error: ' + error.message]));
-                return;
-            }
-
-            model = buildModel(payload);
-            issues = validateModel(model);
-            if (hasFatalValidationIssue(model)) {
-                sendGM(renderList('Import Failed', summarizeModel(model).concat(issues)));
-                return;
-            }
-            character = createObj('character', {
-                name: model.name
-            });
-
-            applyModelToCharacter(character, model);
-            selectedToken = getSelectedGraphic(msg);
-            if (selectedToken) {
-                bindResult = configureTokenForCharacter(selectedToken, character, model.hp.current || model.hp.max, model.ac.total, model.name);
-                if (!bindResult.ok) {
-                    issues.push('Character imported, but selected token could not be bound: ' + bindResult.reason);
-                } else if (!bindResult.avatarSet && bindResult.avatarReason) {
-                    issues.push('Token bound, but avatar was not copied: ' + bindResult.avatarReason);
-                }
-            } else {
-                issues.push('No token was selected during import, so default token creation was skipped.');
-            }
-
-            sendGM(renderList('Import Complete', summarizeModel(model).concat(['Character id: ' + character.id]).concat(issues)));
-        });
     }
 
     function validateHandout(handout) {
@@ -3594,145 +3482,839 @@
                 return;
             }
 
-            model = buildModel(payload);
-            issues = validateModel(model);
-            sendGM(renderList('Validation Summary', summarizeModel(model).concat(issues)));
+            try {
+                model = buildModel(payload);
+                issues = validateModel(model);
+                sendGM(renderList('Validation Summary', summarizeModel(model).concat(issues)));
+            } catch (validationError) {
+                sendGM(renderList('Validation Failed', [validationError.message]));
+            }
         });
     }
 
-    function resolveCharacter(target) {
-        var normalized = normalizeNameTarget(target);
-        var direct = getObj('character', normalized);
-        if (direct) {
-            return { character: direct, error: null };
+    // Managed Lifecycle v1. All object writes are driven by buildWritePlan().
+    var MANIFEST_VERSION = 1;
+    var rowSequence = 0;
+    var operationLocks = {};
+    var TOKEN_FIELDS = ['name', 'represents', 'bar1_link', 'bar1_value', 'bar1_max',
+        'bar2_link', 'bar2_value', 'bar2_max', 'showname', 'showplayers_name',
+        'showplayers_bar1', 'showplayers_bar2'];
+    var DEFAULT_FIELDS = TOKEN_FIELDS.concat(['imgsrc', 'width', 'height', 'layer']);
+    var MAX_MANAGED_ATTRIBUTES = 2500;
+    var MAX_TOUCHED = 5000;
+    var READ_TIMEOUT_MS = 10000;
+
+    function cloneData(value) {
+        return JSON.parse(JSON.stringify(value));
+    }
+
+    function hasKey(object, key) {
+        return Object.prototype.hasOwnProperty.call(object || {}, key);
+    }
+
+    function lifecycleState() {
+        if (!state.D35StatblockImporter) {
+            state.D35StatblockImporter = { version: MANIFEST_VERSION, characters: {}, lastReport: null };
         }
-        var matches = findObjs({
-            _type: 'character',
-            name: normalized
+        if (state.D35StatblockImporter.version !== MANIFEST_VERSION) {
+            throw new Error('Unsupported lifecycle state version. No migration was attempted.');
+        }
+        return state.D35StatblockImporter;
+    }
+
+    function imageIdentity(value) {
+        if (!normalizeRoll20ImageUrl(value, 'thumb')) { return String(value || ''); }
+        var match = String(value || '').match(/\/images\/(.+)\/(?:thumb|med|max|original)[^/?]*(?:\?.*)?$/i);
+        return match ? match[1] : String(value || '');
+    }
+
+    function sameValue(actual, expected, field) {
+        var a = actual === undefined || actual === null ? '' : actual;
+        var b = expected === undefined || expected === null ? '' : expected;
+        if (field === 'imgsrc' || field === 'avatar') {
+            return imageIdentity(a) === imageIdentity(b);
+        }
+        if (typeof a === 'boolean' || typeof b === 'boolean') {
+            return String(a) === String(b) || (a === true && b === '1') || (a === '1' && b === true) ||
+                (a === false && b === '0') || (a === '0' && b === false);
+        }
+        if (/^[+-]?\d+(?:\.\d+)?$/.test(String(a)) && /^[+-]?\d+(?:\.\d+)?$/.test(String(b))) {
+            return Number(a) === Number(b);
+        }
+        return String(a).replace(/\r\n/g, '\n') === String(b).replace(/\r\n/g, '\n');
+    }
+
+    function preservesCurrent(name) {
+        return /^(?:hitpoint|hitpoints|npchitpoints)$/.test(name) ||
+            /^repeating_spells\d+_.+_(?:spellused|maneuverused|maneuverreadied|maneuvergranted)\d+$/.test(name);
+    }
+
+    function buildTokenPolicy(name, hp, ac) {
+        return {
+            name: name, represents: '', bar1_link: '', bar1_value: hp === null ? '' : hp,
+            bar1_max: hp === null ? '' : hp, bar2_link: '', bar2_value: ac === null ? '' : ac,
+            bar2_max: '', showname: false, showplayers_name: false,
+            showplayers_bar1: false, showplayers_bar2: false
+        };
+    }
+
+    function resolveToken(msg, explicitId, required) {
+        var selected = msg.selected || [];
+        var token;
+        if (!explicitId && selected.length > 1) {
+            throw new Error('Select exactly one token, or supply --token <token-id>.');
+        }
+        if (!explicitId && !selected.length) {
+            if (required) { throw new Error('Select one token, or supply --token <token-id>.'); }
+            return null;
+        }
+        if (!explicitId && selected[0]._type !== 'graphic') {
+            throw new Error('The selected object must be a token graphic.');
+        }
+        token = getObj('graphic', explicitId || selected[0]._id);
+        if (!token || (token.get('_subtype') || token.get('subtype')) !== 'token') {
+            throw new Error('Token ID does not identify a token graphic.');
+        }
+        return token;
+    }
+
+    function addTokenIntent(plan, token, characterId, avatar) {
+        var image = token.get('imgsrc');
+        var represents = token.get('represents');
+        var policy = cloneData(plan.tokenPolicy);
+        var template;
+        if (represents && represents !== characterId) {
+            throw new Error('The token already represents another Character. Unbind it explicitly first.');
+        }
+        if (!normalizeRoll20ImageUrl(image, 'thumb') || String(image).indexOf('?') === -1) {
+            throw new Error('Use an uploaded Roll20-library token image with a query string.');
+        }
+        if (!(Number(token.get('width')) > 0) || !(Number(token.get('height')) > 0)) {
+            throw new Error('The token must have positive width and height.');
+        }
+        if (typeof setDefaultTokenForCharacter !== 'function') {
+            throw new Error('setDefaultTokenForCharacter is unavailable; token binding cannot be verified.');
+        }
+        policy.represents = characterId || '';
+        template = cloneData(policy);
+        template.imgsrc = cleanImgsrc(image);
+        template.width = token.get('width');
+        template.height = token.get('height');
+        template.layer = 'objects';
+        plan.token = { id: token.id, values: policy };
+        plan.defaultToken = template;
+        plan.bindToken = true;
+        plan.tokenPreserveHp = !!represents;
+        plan.tokenPageId = token.get('_pageid') || token.get('pageid');
+        if (!plan.tokenPageId) { throw new Error('The token must belong to a page.'); }
+        // Rebinding must not heal an existing encounter token.
+        if (represents) { plan.token.values.bar1_value = token.get('bar1_value'); }
+        if (avatar) {
+            plan.character.avatar = buildAvatarImgsrc(image);
+            plan.replaceAvatar = true;
+        }
+    }
+
+    function finishPlan(plan, manifest, characterId) {
+        if (plan.token) { plan.token.values.represents = characterId; }
+        if (plan.defaultToken) { plan.defaultToken.represents = characterId; }
+        if (!plan.bindToken && manifest && manifest.baseline) {
+            plan.token = cloneData(manifest.baseline.token || null);
+            plan.defaultToken = cloneData(manifest.baseline.defaultToken || null);
+            if (plan.defaultToken) {
+                Object.keys(plan.tokenPolicy).forEach(function (field) {
+                    plan.defaultToken[field] = field === 'represents' ? characterId : plan.tokenPolicy[field];
+                });
+                plan.tokenPageId = manifest.tokenPageId;
+                if (typeof setDefaultTokenForCharacter !== 'function') {
+                    throw new Error('setDefaultTokenForCharacter is unavailable.');
+                }
+            }
+        }
+        if (plan.defaultToken && !getObj('page', plan.tokenPageId)) {
+            throw new Error('The reusable token page no longer exists; bind a token on an existing page.');
+        }
+        if (Object.keys(plan.attributes).length > MAX_MANAGED_ATTRIBUTES ||
+                Object.keys(plan.abilities).length > 256 || Object.keys(plan.rows).length > 512) {
+            throw new Error('Managed plan exceeds the v1 safety limit.');
+        }
+        return plan;
+    }
+
+    function readSnapshot(characterId, tokenId, callback) {
+        var character = getObj('character', characterId);
+        var snapshot = { character: {}, attributes: {}, abilities: [], token: null, defaultToken: null };
+        var remaining = 3;
+        var done = false;
+        var timeout;
+        function completeRead(error) {
+            var token;
+            if (done) { return; }
+            if (!error && --remaining > 0) { return; }
+            done = true;
+            clearTimeout(timeout);
+            if (!error) {
+                try {
+                    snapshot.character.name = character.get('name');
+                    snapshot.character.avatar = character.get('avatar');
+                    findObjs({ _type: 'attribute', _characterid: characterId }).forEach(function (attr) {
+                        var name = attr.get('name');
+                        snapshot.attributes[name] = snapshot.attributes[name] || [];
+                        snapshot.attributes[name].push({ id: attr.id, values: { current: attr.get('current'), max: attr.get('max') } });
+                    });
+                    snapshot.abilities = findObjs({ _type: 'ability', _characterid: characterId }).map(function (ability) {
+                        return { id: ability.id, values: { name: ability.get('name'), action: ability.get('action'), istokenaction: ability.get('istokenaction') } };
+                    });
+                    token = tokenId && getObj('graphic', tokenId);
+                    if (token) {
+                        snapshot.token = { id: token.id, values: {} };
+                        TOKEN_FIELDS.forEach(function (field) { snapshot.token.values[field] = token.get(field); });
+                    }
+                } catch (readError) { error = readError; }
+            }
+            callback(error, snapshot);
+        }
+        if (!character) { callback(new Error('Character no longer exists.'), snapshot); return; }
+        timeout = setTimeout(function () { completeRead(new Error('Timed out reading Character blobs.')); }, READ_TIMEOUT_MS);
+        try {
+            character.get('bio', function (value) { snapshot.character.bio = value; completeRead(); });
+            character.get('gmnotes', function (value) { snapshot.character.gmnotes = value; completeRead(); });
+            character.get('_defaulttoken', function (value) {
+                try { snapshot.defaultToken = value ? JSON.parse(value) : null; }
+                catch (error) { completeRead(new Error('Saved default token is invalid JSON.')); return; }
+                completeRead();
+            });
+        } catch (error) { completeRead(error); }
+    }
+
+    function newReport(mode, characterId, sourceHandoutId) {
+        return {
+            reportVersion: 1, importerVersion: VERSION, operation: mode,
+            characterId: characterId || null, sourceHandoutId: sourceHandoutId || null,
+            at: new Date().toISOString(), status: 'preflight', storedObjectsVerified: false,
+            sheetCalculationsVerified: false, checks: [], issues: [], preserved: [], touched: []
+        };
+    }
+
+    function reportIssue(report, code, path, expected, observed) {
+        report.issues.push({ code: code, path: path, expected: expected === undefined ? null : expected,
+            observed: observed === undefined ? null : observed });
+    }
+
+    function compareManaged(report, phase, path, previous, observed, proposed, field, preserve) {
+        report.checks.push({ phase: phase, path: path, previous: previous === undefined ? null : previous,
+            expected: proposed === undefined ? null : proposed, observed: observed === undefined ? null : observed,
+            preserved: !!preserve });
+        if (preserve) {
+            report.preserved.push(path);
+        } else if (phase === 'preflight') {
+            if (previous !== undefined && !sameValue(observed, previous, field)) {
+                reportIssue(report, 'conflict', path, previous, observed);
+            }
+        } else if (!sameValue(observed, proposed, field)) {
+            reportIssue(report, 'mismatch', path, proposed, observed);
+        }
+    }
+
+    function inspectPlan(plan, manifest, snapshot, report, phase, adoption) {
+        var previous = manifest && manifest.baseline;
+        var owned = manifest && manifest.owned || { attributes: {}, abilities: {} };
+        var names = {};
+        Object.keys(plan.character).forEach(function (field) {
+            if (phase === 'preflight' && !adoption && previous && !hasKey(previous.character, field) &&
+                    snapshot.character[field] && !(field === 'avatar' && plan.replaceAvatar)) {
+                reportIssue(report, 'unowned-collision', 'character.' + field, 'empty unowned field', snapshot.character[field]);
+            }
+            compareManaged(report, phase, 'character.' + field, previous && previous.character[field],
+                snapshot.character[field], plan.character[field], field, false);
+            if (adoption && !sameValue(snapshot.character[field], plan.character[field], field)) {
+                reportIssue(report, 'adoption-mismatch', 'character.' + field, plan.character[field], snapshot.character[field]);
+            }
         });
-        if (!matches.length) {
-            return { character: null, error: 'No character found with the exact name "' + normalized + '".' };
+        Object.keys(previous && previous.attributes || {}).concat(Object.keys(plan.attributes)).forEach(function (name) { names[name] = true; });
+        Object.keys(names).forEach(function (name) {
+            var matches = snapshot.attributes[name] || [];
+            var id = owned.attributes[name];
+            var expected = plan.attributes[name];
+            var old = previous && previous.attributes[name];
+            var observed = matches[0] && matches[0].values;
+            if (matches.length > 1) { reportIssue(report, 'duplicate', 'attribute.' + name, 'one object', matches.map(function (obj) { return obj.id; })); }
+            if (id && (!matches.length || matches[0].id !== id)) {
+                reportIssue(report, 'missing-or-renamed-owned-object', 'attribute.' + name, id, matches[0] && matches[0].id);
+            }
+            if (phase === 'readback' && expected && !matches.length) {
+                reportIssue(report, 'missing', 'attribute.' + name, expected, null);
+            }
+            if (phase === 'preflight' && expected && matches.length && !id && !adoption) {
+                reportIssue(report, 'unowned-collision', 'attribute.' + name, 'no preexisting object', matches[0].id);
+            }
+            if (phase === 'readback' && !expected && id && matches.some(function (obj) { return obj.id === id; })) {
+                reportIssue(report, 'stale', 'attribute.' + name, 'removed', id);
+            }
+            if (!expected && phase === 'readback') { return; }
+            Object.keys(expected || old || {}).forEach(function (field) {
+                var preserve = field === 'current' && preservesCurrent(name) && !!matches.length;
+                // New live-state fields are initialized and verified on creation, preserved thereafter.
+                if (phase === 'readback') {
+                    preserve = field === 'current' && preservesCurrent(name) &&
+                        (report.operation === 'audit' || !!(plan.preservedCurrent && plan.preservedCurrent[name]));
+                }
+                compareManaged(report, phase, 'attribute.' + name + '.' + field,
+                    old && old[field], observed && observed[field], expected && expected[field], field, preserve);
+                if (adoption && (!observed || (!preserve && !sameValue(observed[field], expected[field], field)))) {
+                    reportIssue(report, 'adoption-mismatch', 'attribute.' + name + '.' + field, expected[field], observed && observed[field]);
+                }
+            });
+        });
+        names = {};
+        Object.keys(previous && previous.abilities || {}).concat(Object.keys(plan.abilities)).forEach(function (key) { names[key] = true; });
+        Object.keys(names).forEach(function (key) {
+            var expected = plan.abilities[key];
+            var old = previous && previous.abilities[key];
+            var id = owned.abilities[key];
+            var found = snapshot.abilities.filter(function (obj) { return obj.id === id; })[0];
+            var sameName = snapshot.abilities.filter(function (obj) { return obj.values.name === (expected || old).name; });
+            if (sameName.length > 1) { reportIssue(report, 'duplicate', 'ability.' + key, 'one object', sameName.map(function (obj) { return obj.id; })); }
+            if (id && !found) { reportIssue(report, 'missing', 'ability.' + key, id, null); }
+            if (!id && sameName.length) {
+                if (adoption) { found = sameName[0]; }
+                else { reportIssue(report, 'unowned-collision', 'ability.' + key, 'no preexisting object', sameName[0].id); }
+            }
+            if (phase === 'readback' && expected && !found) { reportIssue(report, 'missing', 'ability.' + key, expected, null); }
+            if (phase === 'readback' && !expected && found) { reportIssue(report, 'stale', 'ability.' + key, 'removed', found.id); }
+            if (!expected && phase === 'readback') { return; }
+            Object.keys(expected || old).forEach(function (field) {
+                compareManaged(report, phase, 'ability.' + key + '.' + field, old && old[field],
+                    found && found.values[field], expected && expected[field], field, false);
+                if (adoption && (!found || !sameValue(found.values[field], expected[field], field))) {
+                    reportIssue(report, 'adoption-mismatch', 'ability.' + key + '.' + field, expected[field], found && found.values[field]);
+                }
+            });
+        });
+        if (plan.token) {
+            if (!snapshot.token || snapshot.token.id !== plan.token.id) { reportIssue(report, 'missing', 'token', plan.token.id, null); }
+            TOKEN_FIELDS.forEach(function (field) {
+                var old = previous && previous.token && previous.token.id === plan.token.id ? previous.token.values[field] : undefined;
+                var observed = snapshot.token && snapshot.token.values[field];
+                compareManaged(report, phase, 'token.' + field, old, observed, plan.token.values[field], field,
+                    field === 'bar1_value' && (phase === 'preflight' || report.operation === 'audit' ||
+                        (!plan.bindToken && report.operation !== 'import') || plan.tokenPreserveHp));
+            });
         }
-        if (matches.length > 1) {
-            return { character: null, error: 'Multiple characters match "' + normalized + '". Please use the character id instead.' };
+        if (plan.defaultToken) {
+            if (!snapshot.defaultToken && phase === 'readback') { reportIssue(report, 'missing', 'defaultToken', plan.defaultToken, null); }
+            if (phase === 'preflight' && snapshot.defaultToken && !(previous && previous.defaultToken) && !plan.bindToken) {
+                reportIssue(report, 'unowned-collision', 'defaultToken', 'explicit bind required', snapshot.defaultToken);
+            }
+            DEFAULT_FIELDS.forEach(function (field) {
+                compareManaged(report, phase, 'defaultToken.' + field,
+                    previous && previous.defaultToken ? previous.defaultToken[field] : undefined,
+                    snapshot.defaultToken && snapshot.defaultToken[field], plan.defaultToken[field], field, false);
+            });
         }
-        return { character: matches[0], error: null };
+        // A manually added field in an owned repeating row remains unowned, but a copied
+        // row with the same logical name is ambiguous and must be surfaced by audit.
+        Object.keys(plan.rows).forEach(function (key) {
+            var rowId = plan.rows[key];
+            var rowNames = Object.keys(plan.attributes).filter(function (name) {
+                return name.indexOf('_' + rowId + '_') !== -1 && /_(?:spellname|maneuvername)\d+$/.test(name);
+            });
+            rowNames.forEach(function (name) {
+                var parts = name.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+                var logicalMatches = Object.keys(snapshot.attributes).filter(function (actualName) {
+                    var actualParts = actualName.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+                    return actualParts && actualParts[1] === parts[1] && actualParts[3] === parts[3] &&
+                        snapshot.attributes[actualName].some(function (obj) { return sameValue(obj.values.current, plan.attributes[name].current); });
+                });
+                // Count only beyond the number of intentional identical spell identities.
+                var intended = Object.keys(plan.attributes).filter(function (candidate) {
+                    var bits = candidate.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+                    return bits && bits[1] === parts[1] && bits[3] === parts[3] && sameValue(plan.attributes[candidate].current, plan.attributes[name].current);
+                }).length;
+                if (logicalMatches.length > intended) { reportIssue(report, 'duplicate-row', 'row.' + key, intended, logicalMatches); }
+            });
+        });
     }
 
-    function getAttrCurrent(characterId, name) {
-        var attr = findObjs({
-            _type: 'attribute',
-            characterid: characterId,
-            name: name
-        })[0];
-        return attr ? attr.get('current') : '';
+    function adoptRowMap(plan, snapshot) {
+        var map = {};
+        var used = {};
+        Object.keys(plan.rows).forEach(function (key) {
+            var row = plan.rows[key];
+            var name = Object.keys(plan.attributes).filter(function (field) {
+                return field.indexOf('_' + row + '_') !== -1 && /_(?:spellname|maneuvername)\d+$/.test(field);
+            })[0];
+            var parts = name && name.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+            var matches = parts && Object.keys(snapshot.attributes).filter(function (field) {
+                var actual = field.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+                return actual && actual[1] === parts[1] && actual[3] === parts[3] &&
+                    snapshot.attributes[field].length === 1 && sameValue(snapshot.attributes[field][0].values.current, plan.attributes[name].current);
+            });
+            if (!matches || matches.length !== 1) { throw new Error('Adoption requires one existing matching repeating row: ' + key); }
+            map[key] = matches[0].match(/^(repeating_spells\d+)_([^_]+)_/)[2];
+            if (used[map[key]]) { throw new Error('Adoption found an ambiguous repeating-row identity.'); }
+            used[map[key]] = true;
+        });
+        return map;
     }
 
-    function bindSelectedTokenToCharacter(target, msg) {
-        var resolved = resolveCharacter(target);
-        var token = getSelectedGraphic(msg);
-        var hp = '';
-        var ac = '';
-        var result;
+    function snapshotOwned(plan, snapshot) {
+        var owned = { characterFields: Object.keys(plan.character), attributes: {}, abilities: {} };
+        Object.keys(plan.attributes).forEach(function (name) {
+            if (snapshot.attributes[name] && snapshot.attributes[name].length === 1) { owned.attributes[name] = snapshot.attributes[name][0].id; }
+        });
+        Object.keys(plan.abilities).forEach(function (key) {
+            var matches = snapshot.abilities.filter(function (obj) { return obj.values.name === plan.abilities[key].name; });
+            if (matches.length === 1) { owned.abilities[key] = matches[0].id; }
+        });
+        return owned;
+    }
 
-        if (resolved.error) {
-            sendGM(renderList('Bind Failed', [resolved.error]));
+    function storeReport(report) {
+        lifecycleState().lastReport = report;
+        sendGM(renderList('Managed ' + report.operation + ': ' + report.status, [
+            'Character id: ' + (report.characterId || '(not created)'),
+            'Stored Roll20 objects verified: ' + (report.storedObjectsVerified ? 'yes' : 'no'),
+            'Sheet calculations / roll behavior verified: no (live commissioning required).',
+            'Warnings: ' + (report.warnings || []).length,
+            'Issues: ' + report.issues.length + '; preserved values: ' + report.preserved.length + '; touched objects/fields: ' + report.touched.length
+        ].concat((report.warnings || []).slice(0, 4)).concat(report.issues.slice(0, 8).map(function (issue) { return issue.code + ': ' + issue.path; })).concat([
+            'Machine-readable JSON: ' + COMMAND + ' report (exports the latest report to a GM-only handout).'
+        ])));
+    }
+
+    function journalTouch(manifest, report, kind, id, path, action) {
+        var entry = { kind: kind, id: id, path: path, action: action };
+        if (report.touched.length >= MAX_TOUCHED) { throw new Error('Operation journal limit exceeded.'); }
+        report.touched.push(entry);
+        manifest.lastOperation.touched.push(entry);
+        return entry;
+    }
+
+    function captureDefaultToken(character, plan, manifest, snapshot, report) {
+        var props;
+        var scratch;
+        if (!plan.defaultToken) { return; }
+        if (!plan.bindToken && snapshot.defaultToken && DEFAULT_FIELDS.every(function (field) {
+            return sameValue(snapshot.defaultToken[field], plan.defaultToken[field], field);
+        })) { return; }
+        // Keep unowned saved-token properties, including deliberately configured vision.
+        props = Object.assign({}, snapshot.defaultToken || {}, cloneData(plan.defaultToken));
+        ['_id', 'id', '_type', 'type', '_subtype'].forEach(function (field) { delete props[field]; });
+        props._pageid = plan.tokenPageId;
+        props.left = -10000;
+        props.top = -10000;
+        scratch = createObj('graphic', props);
+        if (!scratch) { throw new Error('Could not create a temporary reusable-token graphic.'); }
+        manifest.lastOperation.scratchTokenId = scratch.id;
+        journalTouch(manifest, report, 'graphic', scratch.id, 'defaultToken.capture', 'temporary-create');
+        try {
+            setDefaultTokenForCharacter(character, scratch);
+            journalTouch(manifest, report, 'character', character.id, '_defaulttoken', 'capture');
+        } catch (captureError) {
+            cleanupCapture(manifest, report);
+            throw captureError;
+        }
+    }
+
+    function cleanupCapture(manifest, report) {
+        var operation = manifest && manifest.lastOperation;
+        var id = operation && operation.scratchTokenId;
+        var scratch = id && getObj('graphic', id);
+        if (scratch) {
+            journalTouch(manifest, report, 'graphic', id, 'defaultToken.capture', 'temporary-remove');
+            scratch.remove();
+            if (getObj('graphic', id)) { throw new Error('Temporary capture graphic could not be removed: ' + id); }
+        }
+        if (operation) { delete operation.scratchTokenId; }
+    }
+
+    function applyWritePlan(character, plan, manifest, snapshot, report) {
+        var oldPlan = manifest.baseline;
+        var owned = manifest.pending.owned;
+        Object.keys(plan.character).forEach(function (field) {
+            if (!sameValue(snapshot.character[field], plan.character[field], field)) {
+                journalTouch(manifest, report, 'character', character.id, field, 'set');
+                character.set(field, plan.character[field]);
+            }
+        });
+        Object.keys(plan.attributes).forEach(function (name) {
+            var id = owned.attributes[name];
+            var attr = id && getObj('attribute', id);
+            var values = cloneData(plan.attributes[name]);
+            if (attr) {
+                if (preservesCurrent(name)) { delete values.current; }
+                Object.keys(values).forEach(function (field) {
+                    if (sameValue(attr.get(field), values[field], field)) { delete values[field]; }
+                });
+                if (Object.keys(values).length) {
+                    journalTouch(manifest, report, 'attribute', attr.id, name, 'set');
+                    attr.set(values);
+                }
+            } else {
+                var attrTouch = journalTouch(manifest, report, 'attribute', null, name, 'create');
+                attr = createObj('attribute', { characterid: character.id, name: name, current: values.current, max: values.max });
+                if (!attr) { throw new Error('Attribute creation failed: ' + name); }
+                owned.attributes[name] = attr.id;
+                attrTouch.id = attr.id;
+            }
+        });
+        Object.keys(plan.abilities).forEach(function (key) {
+            var ability = owned.abilities[key] && getObj('ability', owned.abilities[key]);
+            if (ability) {
+                var changed = {};
+                Object.keys(plan.abilities[key]).forEach(function (field) {
+                    if (!sameValue(ability.get(field), plan.abilities[key][field], field)) { changed[field] = plan.abilities[key][field]; }
+                });
+                if (Object.keys(changed).length) {
+                    journalTouch(manifest, report, 'ability', ability.id, key, 'set');
+                    ability.set(changed);
+                }
+            } else {
+                var abilityTouch = journalTouch(manifest, report, 'ability', null, key, 'create');
+                ability = createObj('ability', Object.assign({ characterid: character.id }, plan.abilities[key]));
+                if (!ability) { throw new Error('Ability creation failed: ' + key); }
+                owned.abilities[key] = ability.id;
+                abilityTouch.id = ability.id;
+            }
+        });
+        Object.keys(oldPlan && oldPlan.attributes || {}).forEach(function (name) {
+            var id = manifest.owned.attributes[name];
+            if (!hasKey(plan.attributes, name) && id) {
+                journalTouch(manifest, report, 'attribute', id, name, 'remove');
+                getObj('attribute', id).remove();
+                delete owned.attributes[name];
+            }
+        });
+        Object.keys(oldPlan && oldPlan.abilities || {}).forEach(function (key) {
+            var id = manifest.owned.abilities[key];
+            if (!hasKey(plan.abilities, key) && id) {
+                journalTouch(manifest, report, 'ability', id, key, 'remove');
+                getObj('ability', id).remove();
+                delete owned.abilities[key];
+            }
+        });
+        if (plan.bindToken) {
+            var boundToken = getObj('graphic', plan.token.id);
+            if (!boundToken || (boundToken.get('represents') && boundToken.get('represents') !== character.id)) {
+                throw new Error('Token binding changed after preflight; the encounter token was not overwritten.');
+            }
+            var tokenChanges = {};
+            Object.keys(plan.token.values).forEach(function (field) {
+                if (!sameValue(boundToken.get(field), plan.token.values[field], field)) { tokenChanges[field] = plan.token.values[field]; }
+            });
+            if (Object.keys(tokenChanges).length) {
+                journalTouch(manifest, report, 'graphic', plan.token.id, 'tokenPolicy', 'bind');
+                boundToken.set(tokenChanges);
+            }
+        }
+        captureDefaultToken(character, plan, manifest, snapshot, report);
+    }
+
+    function inspectRemoved(manifest, report) {
+        var operation = manifest.lastOperation;
+        (operation && operation.touched || []).forEach(function (entry) {
+            if (entry.action === 'remove' && getObj(entry.kind, entry.id)) {
+                reportIssue(report, 'stale', entry.kind + '.' + entry.path, 'removed', entry.id);
+            }
+        });
+    }
+
+    function verifyAndFinish(manifest, report, release) {
+        var pending = manifest.pending;
+        var plan = pending.plan;
+        readSnapshot(manifest.characterId, plan.token && plan.token.id, function (error, snapshot) {
+            if (!release.active()) { return; }
+            try {
+                if (error) { reportIssue(report, 'read-failed', 'character', 'successful readback', error.message); }
+                else {
+                    inspectPlan(plan, { baseline: null, owned: pending.owned }, snapshot, report, 'readback', false);
+                    inspectRemoved(manifest, report);
+                }
+                cleanupCapture(manifest, report);
+                if (!report.issues.length) {
+                    manifest.baseline = cloneData(plan);
+                    delete manifest.baseline.bindToken;
+                    delete manifest.baseline.replaceAvatar;
+                    Object.keys(plan.attributes).forEach(function (name) {
+                        if (preservesCurrent(name) && snapshot.attributes[name] && snapshot.attributes[name].length === 1) {
+                            manifest.baseline.attributes[name].current = snapshot.attributes[name][0].values.current;
+                        }
+                    });
+                    if (manifest.baseline.token && snapshot.token) {
+                        manifest.baseline.token.values.bar1_value = snapshot.token.values.bar1_value;
+                    }
+                    manifest.owned = cloneData(pending.owned);
+                    manifest.owned.characterFields = Object.keys(plan.character);
+                    manifest.rows = cloneData(plan.rows);
+                    manifest.sourceHandoutId = pending.sourceHandoutId;
+                    manifest.importerVersion = VERSION;
+                    manifest.tokenPageId = plan.tokenPageId || manifest.tokenPageId;
+                    manifest.verifiedAt = new Date().toISOString();
+                    manifest.revision = (manifest.revision || 0) + 1;
+                    delete manifest.pending;
+                    report.status = 'verified';
+                    report.storedObjectsVerified = true;
+                } else { report.status = 'readback-failed'; }
+                manifest.lastOperation.status = report.status;
+                storeReport(report);
+            } catch (finishError) {
+                report.storedObjectsVerified = false;
+                report.status = 'partial-failure';
+                manifest.lastOperation.status = report.status;
+                reportIssue(report, 'verification-error', 'operation', null, finishError.message);
+                storeReport(report);
+            } finally { release(); }
+        });
+    }
+
+    function createManifest(characterId, handoutId) {
+        return { manifestVersion: MANIFEST_VERSION, characterId: characterId, sourceHandoutId: handoutId,
+            importerVersion: VERSION, rows: {}, owned: { characterFields: [], attributes: {}, abilities: {} },
+            baseline: null, revision: 0 };
+    }
+
+    function loadManagedModel(handout, callback) {
+        loadHandoutPayload(handout, function (text) {
+            try {
+                if (!text || text.length > 1000000) { throw new Error('Handout is empty or exceeds the 1 MB import limit.'); }
+                var model = buildModel(tryParsePayload(text));
+                if (hasFatalValidationIssue(model)) { throw new Error(validateModel(model).join(' ')); }
+                callback(null, model);
+            } catch (error) { callback(error); }
+        });
+    }
+
+    function startLifecycle(mode, characterId, handout, msg, options) {
+        var store = lifecycleState();
+        var manifest = characterId && store.characters[characterId];
+        var character = characterId && getObj('character', characterId);
+        var lockKey = characterId || 'create:' + handout.id;
+        var report = newReport(mode, characterId, handout && handout.id || manifest && manifest.sourceHandoutId);
+        var released = false;
+        var commandTimeout;
+        function release() {
+            released = true;
+            clearTimeout(commandTimeout);
+            delete operationLocks[lockKey];
+            if (mode === 'import' && characterId) { delete operationLocks[characterId]; }
+        }
+        release.active = function () { return !released; };
+        function fail(error, partial) {
+            if (released) { return; }
+            report.status = partial ? 'partial-failure' : 'blocked';
+            reportIssue(report, 'operation-error', 'operation', null, error.message);
+            if (manifest && manifest.lastOperation && partial) {
+                manifest.lastOperation.status = report.status;
+                try { cleanupCapture(manifest, report); }
+                catch (cleanupError) { reportIssue(report, 'cleanup-failed', 'defaultToken.capture', null, cleanupError.message); }
+            }
+            storeReport(report);
+            release();
+        }
+        if (operationLocks[lockKey]) { report.status = 'busy'; reportIssue(report, 'locked', 'character', 'one operation', lockKey); storeReport(report); return; }
+        if (characterId && !character) { fail(new Error('Use an existing Character ID.')); return; }
+        if (mode === 'adopt' && manifest) { fail(new Error('Character is already managed.')); return; }
+        if (mode !== 'import' && mode !== 'adopt' && (!manifest || manifest.manifestVersion !== MANIFEST_VERSION)) {
+            fail(new Error('Character is not managed. Explicit adoption is required.')); return;
+        }
+        if (manifest && manifest.pending && mode !== 'audit') {
+            fail(new Error('A prior operation is unverified. Audit it before further mutation.')); return;
+        }
+        operationLocks[lockKey] = true;
+        // Includes the asynchronous handout lookup/read, so abandoned callbacks cannot hold a lock forever.
+        commandTimeout = setTimeout(function () { fail(new Error('Timed out awaiting lifecycle input/readback.'), !!(manifest && manifest.pending)); }, READ_TIMEOUT_MS * 3);
+        if (mode === 'audit') {
+            if (manifest.pending) {
+                report.touched = cloneData(manifest.lastOperation.touched);
+                verifyAndFinish(manifest, report, release);
+            } else {
+                readSnapshot(characterId, manifest.baseline.token && manifest.baseline.token.id, function (error, snapshot) {
+                    if (released) { return; }
+                    try {
+                        if (error) { throw error; }
+                        inspectPlan(manifest.baseline, manifest, snapshot, report, 'readback', false);
+                        inspectRemoved(manifest, report);
+                        report.status = report.issues.length ? 'audit-failed' : 'verified';
+                        report.storedObjectsVerified = !report.issues.length;
+                        storeReport(report);
+                        release();
+                    } catch (auditError) { fail(auditError); }
+                });
+            }
             return;
         }
-        if (!token) {
-            sendGM(renderList('Bind Failed', ['Select a token on the tabletop first.']));
-            return;
+        function planAndRun(model) {
+            var plan;
+            var token;
+            try {
+                if (released) { return; }
+                plan = mode === 'bind' ? cloneData(manifest.baseline) : buildWritePlan(model, manifest);
+                delete plan.bindToken;
+                token = (mode === 'import' || mode === 'bind') ? resolveToken(msg, options.tokenId, mode === 'bind') : null;
+                if (options.avatar && !token) { throw new Error('--avatar requires a token.'); }
+                if (token) { addTokenIntent(plan, token, characterId, options.avatar); }
+                finishPlan(plan, manifest, characterId);
+            } catch (planError) { fail(planError); return; }
+            function afterRead(error, snapshot) {
+                var mutationStarted = false;
+                if (released) { return; }
+                try {
+                    if (error) { throw error; }
+                    if (mode === 'adopt') {
+                        var rows = adoptRowMap(plan, snapshot);
+                        plan = buildWritePlan(model, { rows: rows });
+                        finishPlan(plan, null, characterId);
+                    }
+                    plan.preservedCurrent = {};
+                    Object.keys(plan.attributes).forEach(function (name) {
+                        if (preservesCurrent(name) && snapshot.attributes[name] && snapshot.attributes[name].length === 1) {
+                            plan.preservedCurrent[name] = true;
+                        }
+                    });
+                    if (mode !== 'import') { inspectPlan(plan, manifest, snapshot, report, 'preflight', mode === 'adopt'); }
+                    report.warnings = model ? validateModel(model) : [];
+                    if (mode === 'import' && !plan.token) {
+                        report.warnings.push('No token selected; Character created without managed token/default-token configuration.');
+                    }
+                    var projectedTouches = Object.keys(plan.character).length + Object.keys(plan.attributes).length +
+                        Object.keys(plan.abilities).length + (plan.bindToken ? 1 : 0) + (plan.defaultToken ? 3 : 0) + 1;
+                    if (manifest && manifest.baseline) {
+                        projectedTouches += Object.keys(manifest.baseline.attributes).filter(function (name) { return !hasKey(plan.attributes, name); }).length;
+                        projectedTouches += Object.keys(manifest.baseline.abilities).filter(function (key) { return !hasKey(plan.abilities, key); }).length;
+                    }
+                    if (projectedTouches > MAX_TOUCHED) { throw new Error('Proposed mutation exceeds the bounded operation journal.'); }
+                    if (report.issues.length) { report.status = 'conflict'; storeReport(report); release(); return; }
+                    if (mode === 'preview') {
+                        report.status = 'preview';
+                        report.plan = plan;
+                        storeReport(report);
+                        release();
+                        return;
+                    }
+                    if (mode === 'import') {
+                        mutationStarted = true;
+                        character = createObj('character', { name: plan.character.name });
+                        if (!character) { throw new Error('Character creation failed.'); }
+                        characterId = character.id;
+                        report.characterId = characterId;
+                        operationLocks[characterId] = true;
+                        manifest = createManifest(characterId, handout.id);
+                        store.characters[characterId] = manifest;
+                        if (plan.token) { plan.token.values.represents = characterId; }
+                        if (plan.defaultToken) { plan.defaultToken.represents = characterId; }
+                    } else if (mode === 'adopt') {
+                        manifest = createManifest(characterId, handout.id);
+                        store.characters[characterId] = manifest;
+                    }
+                    manifest.lastOperation = { operation: mode, startedAt: report.at, status: 'applying', touched: [] };
+                    manifest.pending = { plan: cloneData(plan), owned: cloneData(manifest.owned), sourceHandoutId: handout && handout.id || manifest.sourceHandoutId };
+                    if (mode === 'import') { journalTouch(manifest, report, 'character', characterId, 'character', 'create'); }
+                    mutationStarted = true;
+                    if (mode === 'adopt') {
+                        manifest.pending.owned = snapshotOwned(plan, snapshot);
+                    } else {
+                        applyWritePlan(character, plan, manifest, snapshot, report);
+                    }
+                    manifest.lastOperation.status = 'awaiting-readback';
+                    verifyAndFinish(manifest, report, release);
+                } catch (applyError) { fail(applyError, mutationStarted); }
+            }
+            if (mode === 'import') { afterRead(null, { character: {}, attributes: {}, abilities: [], token: null, defaultToken: null }); }
+            else { readSnapshot(characterId, plan.token && plan.token.id, afterRead); }
         }
+        if (mode === 'bind') { planAndRun(null); }
+        else { loadManagedModel(handout, function (error, model) { if (error) { fail(error); } else { planAndRun(model); } }); }
+    }
 
-        hp = getAttrCurrent(resolved.character.id, 'hitpoints_max') ||
-            getAttrCurrent(resolved.character.id, 'npchitpoints_max') ||
-            getAttrCurrent(resolved.character.id, 'hitpoint');
-        ac = getAttrCurrent(resolved.character.id, 'armorclass') ||
-            getAttrCurrent(resolved.character.id, 'npcarmorclass');
+    function parseLifecycleArguments(target) {
+        var options = { tokenId: null, avatar: false };
+        var words = trim(target).split(/\s+/);
+        var positionals = [];
+        words.forEach(function (word, index) {
+            if (word === '--avatar') { options.avatar = true; }
+            else if (word === '--token') {
+                if (options.tokenId || !words[index + 1] || /^--/.test(words[index + 1])) { throw new Error('--token requires one token ID.'); }
+                options.tokenId = words[index + 1];
+            } else if (index && words[index - 1] === '--token') { return; }
+            else if (/^--/.test(word)) { throw new Error('Unknown option: ' + word); }
+            else if (word) { positionals.push(word); }
+        });
+        return { options: options, positionals: positionals };
+    }
 
-        result = configureTokenForCharacter(token, resolved.character, hp, ac, resolved.character.get('name'));
-        if (!result.ok) {
-            sendGM(renderList('Bind Failed', [result.reason]));
-            return;
+    function exportLifecycleReport() {
+        var store = lifecycleState();
+        var handout = store.reportHandoutId && getObj('handout', store.reportHandoutId);
+        if (!store.lastReport) { throw new Error('There is no lifecycle report yet.'); }
+        if (handout && (handout.get('inplayerjournals') || handout.get('controlledby'))) {
+            throw new Error('The report handout was shared manually. Restore GM-only permissions before exporting.');
         }
-
-        sendGM(renderList('Token Bound', [
-            'Character: ' + resolved.character.get('name'),
-            'Bar 1 set to HP: ' + hp,
-            'Bar 2 set to AC: ' + ac,
-            result.avatarSet ? 'Avatar copied from selected token image.' : 'Avatar not copied: ' + result.avatarReason
-        ]));
+        if (!handout) {
+            handout = createObj('handout', { name: 'D35 Managed Lifecycle — Latest JSON Report', inplayerjournals: '', controlledby: '' });
+            if (!handout) { throw new Error('Could not create report handout.'); }
+            store.reportHandoutId = handout.id;
+        }
+        handout.set('gmnotes', '<pre>' + escapeHtml(JSON.stringify(store.lastReport, null, 2)) + '</pre>');
+        sendGM(renderList('JSON Report Exported', ['GM-only handout id: ' + handout.id]));
     }
 
     function showHelp() {
-        sendGM(
-            '<div style="border:1px solid #444;background:#fff;padding:8px;">' +
-            '<div style="font-weight:bold;margin-bottom:6px;">' + escapeHtml(SCRIPT_NAME + ' v' + VERSION) + '</div>' +
-            '<div><code>' + escapeHtml(PING_COMMAND) + '</code> checks that the Roll20 API listener is hearing commands.</div>' +
-            '<div><code>' + escapeHtml(COMMAND + ' validate Handout Name') + '</code></div>' +
-            '<div><code>' + escapeHtml(COMMAND + ' import Handout Name') + '</code></div>' +
-            '<div><code>' + escapeHtml(COMMAND + ' Handout Name') + '</code> (same as import)</div>' +
-            '<div><code>' + escapeHtml(COMMAND + ' bind Character Name') + '</code> with a token selected</div>' +
-            '<div style="margin-top:8px;">Aliases: <code>!d35importer</code> and <code>!d35</code>.</div>' +
-            '<div style="margin-top:8px;">If you select a token before running import, the script will try to bind it as the character&apos;s default token, copy its image to the avatar, and set Bar 1 = HP and Bar 2 = AC.</div>' +
-            '</div>'
-        );
+        sendGM(renderList(SCRIPT_NAME + ' v' + VERSION, [
+            PING_COMMAND + ' — API listener check',
+            COMMAND + ' validate <handout name or id>',
+            COMMAND + ' import <handout name or id> [--token <id>] [--avatar] (create is an alias)',
+            COMMAND + ' <handout name or id> — same as import; creates a new managed Character',
+            COMMAND + ' preview <character-id> <handout-id>',
+            COMMAND + ' update <character-id> <handout-id>',
+            COMMAND + ' adopt <character-id> <handout-id> — claim only matching mapped objects; no sheet writes',
+            COMMAND + ' bind <character-id> [--token <id>] [--avatar]',
+            COMMAND + ' audit <character-id>',
+            COMMAND + ' report — export latest machine-readable JSON report',
+            'Import/bind accept exactly one selected token when --token is omitted. Portrait replacement requires --avatar.',
+            'Aliases: !d35importer and !d35. Managed commands require GM privileges.'
+        ]));
     }
 
     function handleInput(msg) {
         var matchedCommand;
         var parsed;
-        var resolved;
-
-        if (msg.type !== 'api') {
-            return;
-        }
-
+        var args;
+        var characterId;
+        var handoutId;
+        if (msg.type !== 'api') { return; }
         matchedCommand = getMatchedCommand(msg.content);
-        if (!matchedCommand) {
-            return;
-        }
-
-        if (matchedCommand === PING_COMMAND) {
-            sendGM(renderList('API Listener Check', [
-                SCRIPT_NAME + ' heard ' + PING_COMMAND + '.',
-                'Use ' + COMMAND + ' help to show importer commands.'
-            ]));
-            return;
-        }
-
+        if (!matchedCommand) { return; }
+        if (matchedCommand === PING_COMMAND) { sendGM(renderList('API Listener Check', [SCRIPT_NAME + ' heard ' + PING_COMMAND + '.'])); return; }
         parsed = parseCommand(msg.content, matchedCommand);
-        if (parsed.verb === 'help') {
-            showHelp();
-            return;
-        }
-        if (parsed.verb === 'bind') {
-            bindSelectedTokenToCharacter(parsed.target, msg);
-            return;
-        }
-        if (!parsed.target) {
-            showHelp();
-            return;
-        }
-
-        resolveHandout(parsed.target, function (resolvedResult) {
-            resolved = resolvedResult;
-            if (resolved.info) {
-                sendGM(renderList('Import Notice', [resolved.info]));
-            }
-            if (resolved.error) {
-                sendGM(renderList('Command Failed', [resolved.error]));
+        if (parsed.verb === 'help') { showHelp(); return; }
+        if (!playerIsGM(msg.playerid)) { sendGM(renderList('Command Failed', ['GM authorization is required.'])); return; }
+        try {
+            if (parsed.verb === 'report') { exportLifecycleReport(); return; }
+            args = parseLifecycleArguments(parsed.target);
+            if (parsed.verb === 'audit' || parsed.verb === 'bind' || parsed.verb === 'preview' || parsed.verb === 'update' || parsed.verb === 'adopt') {
+                characterId = args.positionals[0];
+                if (!characterId) { throw new Error('An explicit Character ID is required.'); }
+                if (parsed.verb === 'audit' || parsed.verb === 'bind') {
+                    if (args.positionals.length !== 1) { throw new Error('Expected exactly one Character ID.'); }
+                    if (parsed.verb === 'audit' && (args.options.avatar || args.options.tokenId)) { throw new Error('Audit does not accept token options.'); }
+                    startLifecycle(parsed.verb, characterId, null, msg, args.options);
+                    return;
+                }
+                if (args.positionals.length !== 2 || args.options.avatar || args.options.tokenId) { throw new Error('Expected <character-id> <handout-id>, without token options.'); }
+                handoutId = getObj('handout', args.positionals[1]);
+                if (!handoutId) { throw new Error('Use an existing handout ID.'); }
+                startLifecycle(parsed.verb, characterId, handoutId, msg, args.options);
                 return;
             }
-
-            if (parsed.verb === 'validate') {
-                validateHandout(resolved.handout);
-                return;
-            }
-
-            importModelFromHandout(resolved.handout, msg);
-        });
+            resolveHandout(args.options.tokenId || args.options.avatar ? args.positionals.join(' ') : trim(parsed.target), function (resolved) {
+                if (resolved.error) { sendGM(renderList('Command Failed', [resolved.error])); return; }
+                if (parsed.verb === 'validate') { validateHandout(resolved.handout); }
+                else { startLifecycle('import', null, resolved.handout, msg, args.options); }
+            });
+        } catch (error) { sendGM(renderList('Command Failed', [error.message])); }
     }
+
 
     function registerEventHandlers() {
         on('chat:message', handleInput);

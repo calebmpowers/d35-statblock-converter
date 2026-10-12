@@ -62,3 +62,7 @@ Run the payload validator:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\Test-Roll20ImporterPayload.ps1
 ```
+
+## Managed Lifecycle v1 (0.5.0)
+
+Imports create managed Characters. Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Token images are copied to the Character portrait only with `--avatar`. Existing Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md).

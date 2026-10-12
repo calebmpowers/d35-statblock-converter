@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { createRoll20Mock } = require('./roll20-sandbox-mock');
+const { runLifecycleTests } = require('./managed-lifecycle-tests');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 
@@ -181,10 +182,9 @@ function hasSpellbook(payload) {
 
 function createHandout(world, name, jsonText) {
     const handout = world.createObj('handout', {
-        name,
-        notes: '',
-        gmnotes: jsonText
+        name
     });
+    handout.set('gmnotes', jsonText);
     return handout;
 }
 
@@ -213,6 +213,9 @@ function importPayload(world, payload, sourceName) {
         content: '!d35import import ' + handout.id,
         selected: [{ _id: token.id, _type: 'graphic' }]
     });
+    world.flush();
+    assert.strictEqual(world.state.D35StatblockImporter.lastReport.storedObjectsVerified, true,
+        sourceName + ': managed import readback did not verify');
 
     const characters = world.findObjs({ _type: 'character' });
     assert.strictEqual(
@@ -220,9 +223,13 @@ function importPayload(world, payload, sourceName) {
         beforeCharacters + 1,
         sourceName + ': expected exactly one new character'
     );
+    let bio;
+    characters[characters.length - 1].get('bio', (value) => { bio = value; });
+    world.flush();
     return {
         character: characters[characters.length - 1],
-        token
+        token,
+        bio
     };
 }
 
@@ -323,7 +330,7 @@ function assertImport(world, payload, filePath) {
             sourceName + ': artisan tool specialties should not become standalone possessions'
         );
         assert.ok(
-            !/^(?:Listen|Spot)\s+[+-]?\d+/m.test(String(imported.character.get('bio') || '')),
+            !/^(?:Listen|Spot)\s+[+-]?\d+/m.test(String(imported.bio || '')),
             sourceName + ': Listen and Spot totals duplicated from the skill list into the biography'
         );
         if (String(payload.creature.name) === 'Dranys Sellis') {
@@ -358,7 +365,7 @@ function assertImport(world, payload, filePath) {
             );
         });
         assert.ok(
-            !String(imported.character.get('bio') || '').includes('Domain spell'),
+            !String(imported.bio || '').includes('Domain spell'),
             sourceName + ': domain-spell footnote should not leak into biography text'
         );
         if (String(payload.creature.name) === 'Farshore Acolyte') {
@@ -441,7 +448,7 @@ function assertImport(world, payload, filePath) {
         const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
         const other = String(attrCurrent(attrs, 'other') || '');
-        const bio = String(imported.character.get('bio') || '');
+        const bio = String(imported.bio || '');
         ['Sneak Attack', 'Summon Familiar', 'Trapfinding', 'Wizard Spellcasting'].forEach((entryName) => {
             assert.ok(
                 classAbilities.includes(entryName),
@@ -504,7 +511,7 @@ function assertImport(world, payload, filePath) {
             sourceName + ': suffix-form enhancement heading should match prefix-form possession text'
         );
         if (String(payload.creature && payload.creature.name || '') === 'Lord Manthalay Meravanchi') {
-            const bio = String(imported.character.get('bio') || '');
+            const bio = String(imported.bio || '');
             assert.ok(
                 other.includes('Dawn Council Affiliation') && other.includes('Mithral Chainmail +1'),
                 sourceName + ': affiliation and equipment rules should be preserved in Other'
@@ -519,7 +526,7 @@ function assertImport(world, payload, filePath) {
         const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
         const specialAttacks = String(attrCurrent(attrs, 'npcspecialattacks') || '');
-        const bio = String(imported.character.get('bio') || '');
+        const bio = String(imported.bio || '');
         const stenchSave = String(offense.attack_options_line || '').match(/stench \(Fort DC \d+\)/i);
         assert.strictEqual(
             classAbilities,
@@ -564,7 +571,7 @@ function assertImport(world, payload, filePath) {
     if (String(payload.creature && payload.creature.name || '') === 'Monitor Lizard') {
         const classAbilities = String(attrCurrent(attrs, 'classabilities') || '');
         const racialAbilities = String(attrCurrent(attrs, 'racialabilities') || '');
-        const bio = String(imported.character.get('bio') || '');
+        const bio = String(imported.bio || '');
         assert.strictEqual(classAbilities, '', sourceName + ': animal should have no Class Abilities');
         assert.strictEqual(
             racialAbilities.split(/\n\n/).filter((entry) => /^Low-Light Vision\b/i.test(entry)).length,
@@ -998,6 +1005,18 @@ function main() {
     files.forEach((file) => {
         const payload = readJson(file);
         assertImport(world, payload, file);
+        const managed = world.state.D35StatblockImporter.characters[world.state.D35StatblockImporter.lastReport.characterId];
+        const ownedBefore = JSON.stringify(managed.owned);
+        const rowsBefore = JSON.stringify(managed.rows);
+        world.trigger('chat:message', {
+            type: 'api', playerid: '-MOCKGM',
+            content: '!d35import update ' + managed.characterId + ' ' + managed.sourceHandoutId
+        });
+        world.flush();
+        assert.strictEqual(world.state.D35StatblockImporter.lastReport.storedObjectsVerified, true,
+            path.basename(file) + ': managed update readback did not verify');
+        assert.strictEqual(JSON.stringify(managed.owned), ownedBefore, path.basename(file) + ': update changed owned IDs');
+        assert.strictEqual(JSON.stringify(managed.rows), rowsBefore, path.basename(file) + ': update changed row IDs');
         if (options.verbose) {
             console.log('OK: ' + path.basename(file));
         }
@@ -1006,6 +1025,7 @@ function main() {
     const failures = world.chat.filter((entry) => /Import Failed|Command Failed|Validation Failed/i.test(entry.message));
     assert.strictEqual(failures.length, 0, 'Importer reported failures: ' + JSON.stringify(failures));
     console.log('Roll20 mock importer tests passed for ' + files.length + ' payload(s).');
+    runLifecycleTests(options.importer);
 }
 
 main();
