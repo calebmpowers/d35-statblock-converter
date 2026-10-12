@@ -4,8 +4,10 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const crypto = require('crypto');
 const { createRoll20Mock } = require('./roll20-sandbox-mock');
 const { runLifecycleTests } = require('./managed-lifecycle-tests');
+const { measureStateFootprint } = require('./state-footprint');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 
@@ -13,6 +15,8 @@ function parseArgs(argv) {
     const options = {
         importer: path.join(repoRoot, 'D35_Statblock_Importer.js'),
         jsonDir: path.join(repoRoot, 'Converted JSON'),
+        jsonDirs: [],
+        footprintJson: null,
         limit: 0,
         verbose: false
     };
@@ -22,7 +26,9 @@ function parseArgs(argv) {
         if (arg === '--importer') {
             options.importer = path.resolve(argv[++i]);
         } else if (arg === '--json-dir') {
-            options.jsonDir = path.resolve(argv[++i]);
+            options.jsonDirs.push(path.resolve(argv[++i]));
+        } else if (arg === '--footprint-json') {
+            options.footprintJson = path.resolve(argv[++i]);
         } else if (arg === '--limit') {
             options.limit = Number(argv[++i]) || 0;
         } else if (arg === '--verbose') {
@@ -42,7 +48,9 @@ function printHelp() {
         '',
         'Options:',
         '  --importer <path>   Roll20 importer script. Defaults to D35_Statblock_Importer.js.',
-        '  --json-dir <path>   Directory of *.json payloads. Defaults to Converted JSON.',
+        '  --json-dir <path>   Directory of *.json payloads; repeat to combine corpora in one state.',
+        '                     Defaults to Converted JSON when omitted.',
+        '  --footprint-json <path>  Save diagnostic state-size measurements (always printed).',
         '  --limit <count>     Test only the first N payloads.',
         '  --verbose           Print each imported creature.'
     ].join('\n'));
@@ -190,8 +198,7 @@ function createHandout(world, name, jsonText) {
 
 function createToken(world) {
     return world.createObj('graphic', {
-        _pageid: '-MOCKPAGE',
-        subtype: 'token',
+        pageid: '-MOCKPAGE',
         imgsrc: 'https://files.d20.io/images/123456/thumb.png?1',
         width: 70,
         height: 70,
@@ -998,7 +1005,9 @@ function main() {
         return;
     }
 
-    const files = readJsonFiles(options.jsonDir, options.limit);
+    const directories = Array.from(new Set(options.jsonDirs.length ? options.jsonDirs : [options.jsonDir]));
+    let files = directories.flatMap((directory) => readJsonFiles(directory, 0));
+    if (options.limit > 0) { files = files.slice(0, options.limit); }
     const world = createRoll20Mock();
     loadImporter(world, options.importer);
 
@@ -1026,6 +1035,22 @@ function main() {
     assert.strictEqual(failures.length, 0, 'Importer reported failures: ' + JSON.stringify(failures));
     console.log('Roll20 mock importer tests passed for ' + files.length + ' payload(s).');
     runLifecycleTests(options.importer);
+    // The corpus world remains shared across all creatures; isolated lifecycle/fault
+    // scenarios use separate worlds and do not reset or pollute this measurement.
+    const footprint = measureStateFootprint(world.state.D35StatblockImporter);
+    assert.strictEqual(footprint.managedCharacters, files.length, 'Every corpus import must remain managed');
+    footprint.corpus = {
+        measuredAt: new Date().toISOString(),
+        directories,
+        payloadCount: files.length,
+        workload: 'Each payload imported once with a token, then updated once; isolated fault scenarios excluded',
+        importerSha256: crypto.createHash('sha256').update(fs.readFileSync(options.importer)).digest('hex'),
+        payloads: files.map((file) => ({ file: path.basename(file),
+            sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') }))
+    };
+    const summary = { ...footprint, corpus: { ...footprint.corpus, payloads: undefined } };
+    console.log('D35_STATE_FOOTPRINT ' + JSON.stringify(summary));
+    if (options.footprintJson) { fs.writeFileSync(options.footprintJson, JSON.stringify(footprint, null, 2) + '\n'); }
 }
 
 main();

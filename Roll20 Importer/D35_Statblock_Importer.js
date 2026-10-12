@@ -3900,8 +3900,14 @@
         })) { return; }
         // Keep unowned saved-token properties, including deliberately configured vision.
         props = Object.assign({}, snapshot.defaultToken || {}, cloneData(plan.defaultToken));
-        ['_id', 'id', '_type', 'type', '_subtype'].forEach(function (field) { delete props[field]; });
-        props._pageid = plan.tokenPageId;
+        // Graphic underscore properties and identity aliases are read-only. Keep all
+        // writable, unowned settings; supply the page parent through its create-time name.
+        Object.keys(props).forEach(function (field) {
+            if (field.charAt(0) === '_' || ['id', 'type', 'subtype', 'cardid'].indexOf(field) !== -1) {
+                delete props[field];
+            }
+        });
+        props.pageid = plan.tokenPageId;
         props.left = -10000;
         props.top = -10000;
         scratch = createObj('graphic', props);

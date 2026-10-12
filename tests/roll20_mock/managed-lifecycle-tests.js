@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const { createRoll20Mock } = require('./roll20-sandbox-mock');
+const { measureStateFootprint } = require('./state-footprint');
 
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const attack = (raw) => ({ raw, fragments: [{ raw: raw.replace(/^(?:Melee|Ranged)\s+/, '') }] });
@@ -56,7 +57,7 @@ function harness(importer) {
         return world.state.D35StatblockImporter && world.state.D35StatblockImporter.lastReport;
     }
     function token() {
-        return world.createObj('graphic', { _pageid: '-MOCKPAGE', subtype: 'token',
+        return world.createObj('graphic', { pageid: '-MOCKPAGE',
             imgsrc: 'https://files.d20.io/images/12345/fixture/thumb.png?1', width: 70, height: 70,
             layer: 'objects', left: 210, top: 280, light_hassight: true, statusmarkers: '' });
     }
@@ -310,7 +311,8 @@ function runLifecycleTests(importer) {
         assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
         token.set({ represents: '', imgsrc: 'https://external.example/test.png' });
         assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
-        token.set({ imgsrc: 'https://files.d20.io/images/12345/fixture/thumb.png?1', subtype: 'card' });
+        token.set({ imgsrc: 'https://files.d20.io/images/12345/fixture/thumb.png?1' });
+        token._attrs._subtype = 'card'; // Simulate a backend-created card, not a writable token property.
         assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
         assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 0);
     });
@@ -586,6 +588,83 @@ function runLifecycleTests(importer) {
         changed.creature.offense.spell_sections[1].groups.reverse();
         verified(h.send('update ' + c.character.id + ' ' + h.handout(changed).id));
         assert.deepStrictEqual(copy(c.manifest.rows), rows);
+    });
+
+    test('graphic creation rejects read-only properties and requires a valid create-time pageid', (h) => {
+        const props = { pageid: '-MOCKPAGE', imgsrc: 'https://files.d20.io/images/12345/fixture/thumb.png?1' };
+        ['_pageid', '_id', '_type', '_subtype', '_cardid', 'id', 'type', 'subtype', 'cardid'].forEach((field) => {
+            assert.throws(() => h.world.createObj('graphic', { ...props, [field]: 'forbidden' }), /Read-only graphic/);
+        });
+        [undefined, '', '-MISSING', 42].forEach((pageid) => {
+            assert.throws(() => h.world.createObj('graphic', { imgsrc: props.imgsrc, pageid }), /valid pageid/);
+        });
+        assert.strictEqual(h.world.findObjs({ _type: 'graphic' }).length, 0);
+        const graphic = h.world.createObj('graphic', props);
+        assert.strictEqual(graphic.get('_pageid'), '-MOCKPAGE');
+        assert.strictEqual(graphic.get('_subtype'), 'token');
+        assert.ok(!has(graphic.toJSON(), 'pageid'), 'Store the parent using live Roll20 _pageid semantics');
+    });
+
+    test('scratch capture strips read-only metadata and preserves every writable unowned saved setting', (h) => {
+        const token = h.token();
+        const c = h.create(payload(), [token]);
+        const unowned = {
+            light_hassight: true, light_radius: '60', light_dimradius: '20',
+            emits_bright_light: true, bright_light_distance: 40, emits_low_light: true, low_light_distance: 20,
+            has_bright_light_vision: true, has_night_vision: true, night_vision_distance: 90,
+            light_sensitivity_multiplier: 100, aura1_radius: '5', aura1_color: '#00ff00',
+            tooltip: 'Keep this tooltip', show_tooltip: true, bar3_value: 'manual', bar3_max: '7',
+            bar3_link: '', rotation: 17, fliph: true, isdrawing: false, statusmarkers: 'blue',
+            gmnotes: 'Unowned default-token notes: Ω', controlledby: 'test-player'
+        };
+        const readOnly = { _id: '-OLD-ID', id: '-OLD-ID', _type: 'graphic', type: 'graphic',
+            _pageid: '-OLD-PAGE', _subtype: 'token', subtype: 'token', _cardid: '-OLD-CARD', cardid: '-OLD-CARD' };
+        c.character._attrs._defaulttoken = JSON.stringify({ ...JSON.parse(c.character._attrs._defaulttoken), ...unowned, ...readOnly });
+        let captureProps;
+        h.world.hooks.beforeCreate = (type, attrs) => { if (type === 'graphic') { captureProps = copy(attrs); } };
+        const encounterBefore = copy(token.toJSON());
+        const changed = copy(c.data);
+        changed.creature.defense.hp_line = 'hp 36 (6d4+12)';
+        verified(h.send('update ' + c.character.id + ' ' + h.handout(changed).id));
+        assert.ok(captureProps, 'Changing reusable HP must actually exercise scratch capture');
+        assert.strictEqual(captureProps.pageid, '-MOCKPAGE');
+        Object.keys(readOnly).forEach((field) => assert.ok(!has(captureProps, field), field + ' leaked into createObj'));
+        const saved = JSON.parse(c.character._attrs._defaulttoken);
+        Object.keys(unowned).forEach((field) => {
+            assert.deepStrictEqual(captureProps[field], unowned[field], field + ' changed before capture');
+            assert.deepStrictEqual(saved[field], unowned[field], field + ' changed in saved token');
+        });
+        assert.strictEqual(saved._pageid, '-MOCKPAGE');
+        assert.strictEqual(saved.bar1_value, 36);
+        assert.deepStrictEqual(copy(token.toJSON()), encounterBefore);
+        assert.strictEqual(h.world.findObjs({ _type: 'graphic' }).length, 1, 'Scratch graphic must be removed');
+        verified(h.send('bind ' + c.character.id, [token]));
+        const rebound = JSON.parse(c.character._attrs._defaulttoken);
+        Object.keys(unowned).forEach((field) => assert.deepStrictEqual(rebound[field], unowned[field]));
+    });
+
+    test('footprint measurement counts only the importer namespace and does not mutate state', (h) => {
+        const data = payload();
+        data.creature.name = data.creature.header.name = 'Mage Ω 🐉';
+        h.create(data);
+        h.create();
+        h.world.state.OtherMod = { unrelated: 'x'.repeat(10000) };
+        const before = JSON.stringify(h.world.state);
+        const namespace = h.world.state.D35StatblockImporter;
+        const json = JSON.stringify(namespace);
+        const measured = measureStateFootprint(namespace);
+        assert.strictEqual(measured.managedCharacters, 2);
+        assert.strictEqual(measured.total.utf8Bytes, Buffer.byteLength(json, 'utf8'));
+        assert.strictEqual(measured.total.utf16CodeUnits, json.length);
+        assert.ok(measured.total.utf8Bytes > measured.total.utf16CodeUnits);
+        assert.strictEqual(measured.lastReport.utf8Bytes, Buffer.byteLength(JSON.stringify(namespace.lastReport), 'utf8'));
+        assert.strictEqual(measured.averageStatePerCharacter.utf8Bytes, measured.total.utf8Bytes / 2);
+        const sizes = Object.values(namespace.characters).map((manifest) => Buffer.byteLength(JSON.stringify(manifest), 'utf8'));
+        assert.strictEqual(measured.largestManifest.utf8Bytes, Math.max(...sizes));
+        assert.strictEqual(measured.fixedNamespaceAndReportOverhead.utf8Bytes +
+            measured.averageCharacterEntry.utf8Bytes * 2 + 1, measured.total.utf8Bytes);
+        assert.deepStrictEqual(measured.projection.estimates.map((entry) => entry.managedCharacters), [50, 100, 200]);
+        assert.strictEqual(JSON.stringify(h.world.state), before);
     });
 
     console.log('Managed lifecycle tests passed: ' + count + ' scenario(s).');

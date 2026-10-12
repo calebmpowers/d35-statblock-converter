@@ -10,6 +10,12 @@ class Roll20Object {
         this._attrs._type = type;
         this._attrs.type = type;
 
+        if (type === 'graphic') {
+            this._attrs._pageid = this._attrs.pageid;
+            this._attrs._subtype = 'token';
+            delete this._attrs.pageid;
+        }
+
         if (this._attrs.characterid && !this._attrs._characterid) {
             this._attrs._characterid = this._attrs.characterid;
         }
@@ -144,6 +150,14 @@ function createRoll20Mock() {
 
         createObj(type, attrs) {
             const normalized = normalizeType(type);
+            if (normalized === 'graphic') {
+                const readOnly = Object.keys(attrs || {}).find((key) => key.startsWith('_') ||
+                    ['id', 'type', 'subtype', 'cardid'].includes(key));
+                if (readOnly) { throw new Error('Read-only graphic create property: ' + readOnly); }
+                if (!attrs || typeof attrs.pageid !== 'string' || !world.getObj('page', attrs.pageid)) {
+                    throw new Error('Graphic creation requires a valid pageid.');
+                }
+            }
             if (['character', 'handout'].includes(normalized) && ['bio', 'notes', 'gmnotes', '_defaulttoken', 'defaulttoken'].some((key) => key in (attrs || {}))) {
                 throw new Error('Roll20 blob fields must be set after object creation.');
             }
