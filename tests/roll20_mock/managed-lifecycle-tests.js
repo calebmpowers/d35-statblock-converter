@@ -33,11 +33,11 @@ function payload() {
     };
 }
 
-function load(world, importer) {
+function load(world, importer, source = fs.readFileSync(importer, 'utf8')) {
     const context = Object.assign({ console, Date, JSON, Math, RegExp, String, Number, Boolean, Array, Object,
         parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent }, world.globals());
     vm.createContext(context);
-    vm.runInContext(fs.readFileSync(importer, 'utf8'), context, { filename: importer });
+    vm.runInContext(source, context, { filename: importer });
     world.trigger('ready', {});
     return context;
 }
@@ -315,6 +315,123 @@ function runLifecycleTests(importer) {
         token._attrs._subtype = 'card'; // Simulate a backend-created card, not a writable token property.
         assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
         assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 0);
+    });
+
+    const visibilityFields = ['showname', 'showplayers_name', 'showplayers_bar1', 'showplayers_bar2'];
+
+    test('omitted disabled saved visibility flags verify import, audit and no-change update', (h) => {
+        const c = h.create(payload(), [h.token()]);
+        const saved = JSON.parse(c.character._attrs._defaulttoken);
+        visibilityFields.forEach((field) => {
+            assert.ok(!has(saved, field), field + ' should be omitted by mock capture');
+            assert.strictEqual(c.manifest.baseline.defaultToken[field], false);
+            const check = h.report().checks.find((item) => item.path === 'defaultToken.' + field);
+            assert.strictEqual(check.observed, null, 'report must retain the raw observation');
+        });
+        verified(h.send('audit ' + c.character.id));
+        const before = h.objects();
+        verified(h.send('update ' + c.character.id + ' ' + c.source.id));
+        assert.deepStrictEqual(h.objects(), before);
+        assert.strictEqual(h.report().touched.length, 0, 'omitted flags must not trigger recapture');
+    });
+
+    test('null disabled saved visibility flags verify without rewriting objects', (h) => {
+        const c = h.create(payload(), [h.token()]);
+        const saved = JSON.parse(c.character._attrs._defaulttoken);
+        visibilityFields.forEach((field) => { saved[field] = null; });
+        c.character._attrs._defaulttoken = JSON.stringify(saved);
+        const before = h.objects();
+        verified(h.send('audit ' + c.character.id));
+        verified(h.send('update ' + c.character.id + ' ' + c.source.id));
+        assert.deepStrictEqual(h.objects(), before);
+        assert.strictEqual(h.report().touched.length, 0);
+    });
+
+    visibilityFields.forEach((field) => {
+        [true, 'true', 1, '1'].forEach((enabled) => test('saved ' + field + '=' + JSON.stringify(enabled) + ' remains a conflict', (h) => {
+            const c = h.create(payload(), [h.token()]);
+            const saved = JSON.parse(c.character._attrs._defaulttoken);
+            saved[field] = enabled;
+            c.character._attrs._defaulttoken = JSON.stringify(saved);
+            const before = h.objects();
+            const report = h.send('audit ' + c.character.id);
+            assert.ok(report.issues.some((item) => item.code === 'mismatch' && item.path === 'defaultToken.' + field));
+            const update = h.send('update ' + c.character.id + ' ' + c.source.id);
+            assert.strictEqual(update.status, 'conflict');
+            assert.ok(update.issues.some((item) => item.code === 'conflict' && item.path === 'defaultToken.' + field));
+            assert.deepStrictEqual(h.objects(), before);
+            assert.strictEqual(c.manifest.revision, 1);
+        }));
+
+        test('bound token ' + field + ' null remains a mismatch', (h) => {
+            const token = h.token();
+            const c = h.create(payload(), [token]);
+            token.set(field, null);
+            const report = h.send('audit ' + c.character.id);
+            assert.ok(report.issues.some((item) => item.code === 'mismatch' && item.path === 'token.' + field));
+        });
+    });
+
+    test('null other default-token, Attribute and Ability fields remain mismatches', (h) => {
+        const c = h.create(payload(), [h.token()]);
+        const saved = JSON.parse(c.character._attrs._defaulttoken);
+        saved.represents = null;
+        c.character._attrs._defaulttoken = JSON.stringify(saved);
+        h.attr(c.character, 'npcarmorclass').set('current', null);
+        const key = Object.keys(c.manifest.owned.abilities)[0];
+        h.world.getObj('ability', c.manifest.owned.abilities[key]).set('istokenaction', null);
+        const report = h.send('audit ' + c.character.id);
+        ['defaultToken.represents', 'attribute.npcarmorclass.current', 'ability.' + key + '.istokenaction'].forEach((path) => {
+            assert.ok(report.issues.some((item) => item.code === 'mismatch' && item.path === path), path);
+        });
+    });
+
+    test('audit recovers the old strict-readback pending import after sandbox restart without object writes', (h) => {
+        // Reproduce the previous comparator against the same omitted-flag mock storage.
+        const strictSource = fs.readFileSync(importer, 'utf8').replace(
+            'false, sameDefaultTokenValue);', 'false, sameValue);');
+        assert.notStrictEqual(strictSource, fs.readFileSync(importer, 'utf8'));
+        h.world.handlers.ready = [];
+        h.world.handlers['chat:message'] = [];
+        load(h.world, importer, strictSource);
+        const data = payload();
+        data.creature.defense.hp_line = 'hp 31 (5d4+19)';
+        data.creature.defense.ac_line = 'AC 16, touch 12, flat-footed 14';
+        const source = h.handout(data);
+        const token = h.token();
+        const failed = h.send('import ' + source.id, [token]);
+        assert.strictEqual(failed.status, 'readback-failed');
+        assert.deepStrictEqual(copy(failed.issues).map((item) => item.path).sort(), visibilityFields.map((field) => 'defaultToken.' + field).sort());
+        const character = h.world.getObj('character', failed.characterId);
+        const manifest = h.world.state.D35StatblockImporter.characters[character.id];
+        assert.strictEqual(manifest.baseline, null);
+        assert.strictEqual(manifest.revision, 0);
+        const pending = copy(manifest.pending);
+        const before = h.objects();
+        h.world.handlers.ready = [];
+        h.world.handlers['chat:message'] = [];
+        load(h.world, importer);
+        h.world.hooks.beforeCreate = () => { throw new Error('Audit must not create objects'); };
+        h.world.hooks.beforeSet = () => { throw new Error('Audit must not rewrite objects'); };
+        h.world.hooks.beforeRemove = () => { throw new Error('Audit must not remove objects'); };
+        verified(h.send('audit ' + character.id));
+        assert.deepStrictEqual(h.objects(), before);
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 1);
+        assert.strictEqual(manifest.characterId, character.id);
+        assert.strictEqual(manifest.revision, 1);
+        assert.ok(manifest.verifiedAt);
+        assert.ok(!manifest.pending);
+        const expectedBaseline = copy(pending.plan);
+        delete expectedBaseline.bindToken;
+        delete expectedBaseline.replaceAvatar;
+        assert.deepStrictEqual(copy(manifest.baseline), expectedBaseline);
+        assert.deepStrictEqual(copy(manifest.owned.attributes), pending.owned.attributes);
+        assert.deepStrictEqual(copy(manifest.owned.abilities), pending.owned.abilities);
+        assert.strictEqual(manifest.baseline.defaultToken.represents, character.id);
+        assert.strictEqual(manifest.baseline.defaultToken.bar1_value, 31);
+        assert.strictEqual(manifest.baseline.defaultToken.bar2_value, 16);
+        verified(h.send('audit ' + character.id));
+        assert.strictEqual(manifest.revision, 1, 'repeat audit must not advance an already verified baseline');
     });
 
     ['missing', 'incorrect'].forEach((failure) => test('default-token ' + failure + ' capture fails readback', (h) => {

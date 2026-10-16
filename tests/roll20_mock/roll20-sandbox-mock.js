@@ -244,6 +244,10 @@ function createRoll20Mock() {
             if (world.defaultCapture === 'throw') { throw new Error('Injected capture failure'); }
             if (world.defaultCapture === 'missing') { return; }
             const data = token.toJSON();
+            // Saved default-token blobs omit these flags when visibility is disabled.
+            ['showname', 'showplayers_name', 'showplayers_bar1', 'showplayers_bar2'].forEach((field) => {
+                if (data[field] === false) { delete data[field]; }
+            });
             if (world.defaultCapture === 'incorrect') { data.represents = '-WRONG'; }
             character._attrs._defaulttoken = JSON.stringify(data);
         },

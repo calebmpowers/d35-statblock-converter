@@ -3544,6 +3544,15 @@
         return String(a).replace(/\r\n/g, '\n') === String(b).replace(/\r\n/g, '\n');
     }
 
+    function sameDefaultTokenValue(actual, expected, field) {
+        // Roll20 may omit disabled visibility flags from the saved token blob.
+        if (['showname', 'showplayers_name', 'showplayers_bar1', 'showplayers_bar2'].indexOf(field) !== -1) {
+            if (actual === undefined || actual === null) { actual = false; }
+            if (expected === undefined || expected === null) { expected = false; }
+        }
+        return sameValue(actual, expected, field);
+    }
+
     function preservesCurrent(name) {
         return /^(?:hitpoint|hitpoints|npchitpoints)$/.test(name) ||
             /^repeating_spells\d+_.+_(?:spellused|maneuverused|maneuverreadied|maneuvergranted)\d+$/.test(name);
@@ -3701,17 +3710,18 @@
             observed: observed === undefined ? null : observed });
     }
 
-    function compareManaged(report, phase, path, previous, observed, proposed, field, preserve) {
+    function compareManaged(report, phase, path, previous, observed, proposed, field, preserve, compare) {
+        compare = compare || sameValue;
         report.checks.push({ phase: phase, path: path, previous: previous === undefined ? null : previous,
             expected: proposed === undefined ? null : proposed, observed: observed === undefined ? null : observed,
             preserved: !!preserve });
         if (preserve) {
             report.preserved.push(path);
         } else if (phase === 'preflight') {
-            if (previous !== undefined && !sameValue(observed, previous, field)) {
+            if (previous !== undefined && !compare(observed, previous, field)) {
                 reportIssue(report, 'conflict', path, previous, observed);
             }
-        } else if (!sameValue(observed, proposed, field)) {
+        } else if (!compare(observed, proposed, field)) {
             reportIssue(report, 'mismatch', path, proposed, observed);
         }
     }
@@ -3809,7 +3819,7 @@
             DEFAULT_FIELDS.forEach(function (field) {
                 compareManaged(report, phase, 'defaultToken.' + field,
                     previous && previous.defaultToken ? previous.defaultToken[field] : undefined,
-                    snapshot.defaultToken && snapshot.defaultToken[field], plan.defaultToken[field], field, false);
+                    snapshot.defaultToken && snapshot.defaultToken[field], plan.defaultToken[field], field, false, sameDefaultTokenValue);
             });
         }
         // A manually added field in an owned repeating row remains unowned, but a copied
@@ -3896,7 +3906,7 @@
         var scratch;
         if (!plan.defaultToken) { return; }
         if (!plan.bindToken && snapshot.defaultToken && DEFAULT_FIELDS.every(function (field) {
-            return sameValue(snapshot.defaultToken[field], plan.defaultToken[field], field);
+            return sameDefaultTokenValue(snapshot.defaultToken[field], plan.defaultToken[field], field);
         })) { return; }
         // Keep unowned saved-token properties, including deliberately configured vision.
         props = Object.assign({}, snapshot.defaultToken || {}, cloneData(plan.defaultToken));
