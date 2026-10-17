@@ -85,6 +85,171 @@ function runLifecycleTests(importer) {
     function verified(report) { assert.strictEqual(report.status, 'verified', JSON.stringify(report.issues)); }
     function issue(report, code) { assert.ok(report.issues.some((item) => item.code === code), JSON.stringify(report.issues)); }
 
+    [false, true].forEach((consume) => test('initial recalc request verifies with worker consumption=' + consume, (h) => {
+        h.world.emulateRecalc = consume;
+        h.world.workerDelay = 25;
+        const c = h.create();
+        const recalc = h.attr(c.character, 'recalc');
+        assert.strictEqual(h.world.workerWrites.length, 1);
+        assert.strictEqual(h.world.workerWrites[0].id, recalc.id);
+        assert.strictEqual(h.world.workerWrites[0].previous, 0);
+        assert.deepStrictEqual(h.world.workerWrites[0].changes, { current: 1 });
+        assert.strictEqual(String(c.manifest.baseline.attributes.recalc.current), consume ? '0' : '1');
+        assert.strictEqual(h.report().sheetCalculationsVerified, false);
+        verified(h.send('audit ' + c.character.id));
+    }));
+
+    test('legacy recalc baseline tolerates sheet idle through audit, preview, no-change and changed-source updates', (h) => {
+        const data = payload();
+        data.creature.defense.hp_line = 'hp 31 (5d4+19)';
+        data.creature.defense.ac_line = 'AC 16, touch 12, flat-footed 14';
+        data.creature.offense.spell_sections[0].groups[0].spells[0] = { name: 'Dimension Door', raw: 'dimension door' };
+        const token = h.token();
+        const c = h.create(data, [token]);
+        const recalc = h.attr(c.character, 'recalc');
+        assert.strictEqual(c.manifest.baseline.attributes.recalc.current, 1, 'legacy verified baseline');
+        const owned = copy(c.manifest.owned);
+        recalc.set('current', '0'); // Normal sheet interaction consumes the control.
+        ['hitpoint', 'hitpoints', 'npchitpoints'].forEach((name) => h.attr(c.character, name).set('current', 23));
+        const spellName = Object.keys(c.manifest.baseline.attributes).find((name) => /_spellname\d+$/.test(name) &&
+            /dimension door/i.test(String(c.manifest.baseline.attributes[name].current)));
+        assert.ok(spellName);
+        const used = spellName.replace('_spellname', '_spellused');
+        h.attr(c.character, used).set('current', 1);
+        const manual = h.world.createObj('attribute', { characterid: c.character.id, name: 'campaign_note', current: 'Keep' });
+        const ability = h.world.createObj('ability', { characterid: c.character.id, name: 'Manual action', action: '/em keep' });
+        token.set({ bar1_value: 19, left: 800, top: 900, rotation: 45, statusmarkers: 'red',
+            layer: 'gmlayer', tint_color: '#ff0000', light_hassight: true, bright_light_distance: 30 });
+        const encounter = copy(token.toJSON());
+        const before = h.objects();
+        const baseline = copy(c.manifest.baseline);
+        const writes = h.world.workerWrites.length;
+        verified(h.send('audit ' + c.character.id));
+        assert.deepStrictEqual(copy(c.manifest.baseline), baseline, 'audit must not migrate the old baseline');
+        const preview = h.send('preview ' + c.character.id + ' ' + c.source.id);
+        assert.strictEqual(preview.status, 'preview');
+        assert.strictEqual(preview.issues.length, 0);
+        assert.deepStrictEqual(h.objects(), before);
+        verified(h.send('update ' + c.character.id + ' ' + c.source.id));
+        assert.strictEqual(h.report().touched.length, 0);
+        assert.strictEqual(h.world.workerWrites.length, writes);
+        assert.deepStrictEqual(h.objects(), before);
+        assert.strictEqual(c.manifest.baseline.attributes.recalc.current, '0');
+        h.world.emulateRecalc = true;
+        h.world.hooks.sheetWorker = () => {
+            assert.strictEqual(h.attr(c.character, 'str-base').get('current'), 14, 'request must follow sheet writes');
+            assert.strictEqual(h.attr(c.character, 'hitpoints').get('max'), 40);
+        };
+        const changed = copy(data);
+        changed.creature.defense.hp_line = 'hp 40 (8d4+20)';
+        changed.creature.statistics.abilities_line = changed.creature.statistics.abilities_line.replace('Str 12', 'Str 14');
+        const changedSource = h.handout(changed);
+        verified(h.send('update ' + c.character.id + ' ' + changedSource.id));
+        assert.strictEqual(h.world.workerWrites.length, writes + 1);
+        assert.strictEqual(h.world.workerWrites.at(-1).previous, '0');
+        assert.strictEqual(c.manifest.baseline.attributes.recalc.current, '0');
+        assert.strictEqual(recalc.id, c.manifest.owned.attributes.recalc);
+        assert.deepStrictEqual(copy(c.manifest.owned), owned);
+        ['hitpoint', 'hitpoints', 'npchitpoints'].forEach((name) => assert.strictEqual(h.attr(c.character, name).get('current'), 23));
+        assert.strictEqual(h.attr(c.character, used).get('current'), 1);
+        assert.strictEqual(manual.get('current'), 'Keep');
+        assert.strictEqual(ability.get('action'), '/em keep');
+        assert.deepStrictEqual(copy(token.toJSON()), encounter);
+        assert.strictEqual(h.world.findObjs({ _type: 'character' }).length, 1);
+        assert.strictEqual(c.manifest.manifestVersion, 1);
+        assert.strictEqual(h.world.state.D35StatblockImporter.version, 1);
+        assert.strictEqual(h.report().sheetCalculationsVerified, false);
+        verified(h.send('audit ' + c.character.id));
+        verified(h.send('update ' + c.character.id + ' ' + changedSource.id));
+        assert.strictEqual(h.report().touched.length, 0);
+        assert.strictEqual(h.world.workerWrites.length, writes + 1);
+        h.attr(c.character, 'npcarmorclass').set('current', 99);
+        const conflictBefore = h.objects();
+        issue(h.send('audit ' + c.character.id), 'mismatch');
+        issue(h.send('preview ' + c.character.id + ' ' + changedSource.id), 'conflict');
+        issue(h.send('update ' + c.character.id + ' ' + changedSource.id), 'conflict');
+        assert.deepStrictEqual(h.objects(), conflictBefore);
+        assert.strictEqual(h.world.workerWrites.length, writes + 1);
+    });
+
+    test('changed source retriggers a still-pending recalc request with a fresh edge', (h) => {
+        const c = h.create();
+        assert.strictEqual(h.attr(c.character, 'recalc').get('current'), 1);
+        const changed = copy(c.data);
+        changed.creature.statistics.abilities_line = changed.creature.statistics.abilities_line.replace('Str 12', 'Str 14');
+        verified(h.send('update ' + c.character.id + ' ' + h.handout(changed).id));
+        assert.strictEqual(h.world.workerWrites.length, 2);
+        assert.strictEqual(h.world.workerWrites[1].previous, 0);
+        assert.ok(h.report().touched.some((item) => item.path === 'recalc.current' && item.action === 'setWithWorker'));
+    });
+
+    test('explicit bind does not request recalc', (h) => {
+        const c = h.create();
+        h.attr(c.character, 'recalc').set('current', 0);
+        verified(h.send('bind ' + c.character.id, [h.token()]));
+        assert.strictEqual(h.world.workerWrites.length, 1);
+        assert.strictEqual(h.attr(c.character, 'recalc').get('current'), 0);
+    });
+
+    [null, undefined, '', 2, 'true', false].forEach((value) => test('invalid recalc current ' + String(value) + ' is not silently accepted', (h) => {
+        const c = h.create();
+        h.attr(c.character, 'recalc')._attrs.current = value;
+        const before = h.objects();
+        const report = h.send('audit ' + c.character.id);
+        assert.ok(report.issues.some((item) => item.path === 'attribute.recalc.current' && item.code === 'mismatch'));
+        issue(h.send('update ' + c.character.id + ' ' + c.source.id), 'conflict');
+        assert.deepStrictEqual(h.objects(), before);
+        assert.strictEqual(h.world.workerWrites.length, 1);
+    }));
+
+    ['missing', 'duplicate', 'renamed', 'max'].forEach((failure) => test('recalc ' + failure + ' ownership/field guard remains strict', (h) => {
+        const c = h.create();
+        const recalc = h.attr(c.character, 'recalc');
+        recalc.set('current', 0);
+        if (failure === 'missing') { recalc.remove(); }
+        if (failure === 'duplicate') { h.world.createObj('attribute', { characterid: c.character.id, name: 'recalc', current: 0, max: '' }); }
+        if (failure === 'renamed') { recalc.set('name', 'manual_recalc'); }
+        if (failure === 'max') { recalc.set('max', 99); }
+        assert.strictEqual(h.send('audit ' + c.character.id).status, 'audit-failed');
+        const before = h.objects();
+        assert.strictEqual(h.send('update ' + c.character.id + ' ' + c.source.id).status, 'conflict');
+        assert.deepStrictEqual(h.objects(), before);
+    }));
+
+    test('worker changes to ordinary managed statistics still fail readback', (h) => {
+        const c = h.create();
+        const baseline = copy(c.manifest.baseline);
+        h.world.emulateRecalc = true;
+        h.world.hooks.sheetWorker = () => h.attr(c.character, 'npcarmorclass').set('current', 99);
+        const changed = copy(c.data);
+        changed.creature.defense.hp_line = 'hp 36 (6d4+12)';
+        const report = h.send('update ' + c.character.id + ' ' + h.handout(changed).id);
+        assert.strictEqual(report.status, 'readback-failed');
+        assert.ok(report.issues.some((item) => item.path === 'attribute.npcarmorclass.current' && item.code === 'mismatch'));
+        assert.deepStrictEqual(copy(c.manifest.baseline), baseline);
+        assert.ok(c.manifest.pending);
+        assert.strictEqual(report.sheetCalculationsVerified, false);
+    });
+
+    test('worker completion timeout retains pending evidence and releases the lifecycle lock', (h) => {
+        const c = h.create();
+        const baseline = copy(c.manifest.baseline);
+        h.world.suspendWorkers = true;
+        const changed = copy(c.data);
+        changed.creature.defense.hp_line = 'hp 36 (6d4+12)';
+        const source = h.handout(changed);
+        const report = h.send('update ' + c.character.id + ' ' + source.id);
+        assert.strictEqual(report.status, 'partial-failure');
+        assert.strictEqual(report.storedObjectsVerified, false);
+        assert.deepStrictEqual(copy(c.manifest.baseline), baseline);
+        assert.ok(c.manifest.pending);
+        h.attr(c.character, 'recalc').set('current', 0);
+        verified(h.send('audit ' + c.character.id));
+        assert.strictEqual(c.manifest.revision, 2);
+        assert.strictEqual(c.manifest.baseline.attributes.recalc.current, 0);
+        assert.ok(!c.manifest.pending);
+    });
+
     test('managed update retains Character, Attribute, Ability and row IDs', (h) => {
         const c = h.create();
         const beforeOwned = copy(c.manifest.owned);

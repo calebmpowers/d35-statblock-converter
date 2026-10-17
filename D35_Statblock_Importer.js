@@ -3558,6 +3558,11 @@
             /^repeating_spells\d+_.+_(?:spellused|maneuverused|maneuverreadied|maneuvergranted)\d+$/.test(name);
     }
 
+    function sameRecalcValue(actual, expected) {
+        // The sheet consumes this request (1) and returns it to idle (0).
+        return /^(?:0|1)$/.test(String(actual)) && /^(?:0|1)$/.test(String(expected));
+    }
+
     function buildTokenPolicy(name, hp, ac) {
         return {
             name: name, represents: '', bar1_link: '', bar1_value: hp === null ? '' : hp,
@@ -3763,6 +3768,7 @@
             }
             if (!expected && phase === 'readback') { return; }
             Object.keys(expected || old || {}).forEach(function (field) {
+                var compare = name === 'recalc' && field === 'current' ? sameRecalcValue : sameValue;
                 var preserve = field === 'current' && preservesCurrent(name) && !!matches.length;
                 // New live-state fields are initialized and verified on creation, preserved thereafter.
                 if (phase === 'readback') {
@@ -3770,8 +3776,8 @@
                         (report.operation === 'audit' || !!(plan.preservedCurrent && plan.preservedCurrent[name]));
                 }
                 compareManaged(report, phase, 'attribute.' + name + '.' + field,
-                    old && old[field], observed && observed[field], expected && expected[field], field, preserve);
-                if (adoption && (!observed || (!preserve && !sameValue(observed[field], expected[field], field)))) {
+                    old && old[field], observed && observed[field], expected && expected[field], field, preserve, compare);
+                if (adoption && (!observed || (!preserve && !compare(observed[field], expected[field], field)))) {
                     reportIssue(report, 'adoption-mismatch', 'attribute.' + name + '.' + field, expected[field], observed && observed[field]);
                 }
             });
@@ -3945,9 +3951,10 @@
         if (operation) { delete operation.scratchTokenId; }
     }
 
-    function applyWritePlan(character, plan, manifest, snapshot, report) {
+    function applyWritePlan(character, plan, manifest, snapshot, report, done) {
         var oldPlan = manifest.baseline;
         var owned = manifest.pending.owned;
+        var sheetChanged = false;
         Object.keys(plan.character).forEach(function (field) {
             if (!sameValue(snapshot.character[field], plan.character[field], field)) {
                 journalTouch(manifest, report, 'character', character.id, field, 'set');
@@ -3959,20 +3966,23 @@
             var attr = id && getObj('attribute', id);
             var values = cloneData(plan.attributes[name]);
             if (attr) {
-                if (preservesCurrent(name)) { delete values.current; }
+                if (preservesCurrent(name) || name === 'recalc') { delete values.current; }
                 Object.keys(values).forEach(function (field) {
                     if (sameValue(attr.get(field), values[field], field)) { delete values[field]; }
                 });
                 if (Object.keys(values).length) {
                     journalTouch(manifest, report, 'attribute', attr.id, name, 'set');
                     attr.set(values);
+                    if (name !== 'recalc') { sheetChanged = true; }
                 }
             } else {
                 var attrTouch = journalTouch(manifest, report, 'attribute', null, name, 'create');
-                attr = createObj('attribute', { characterid: character.id, name: name, current: values.current, max: values.max });
+                attr = createObj('attribute', { characterid: character.id, name: name,
+                    current: name === 'recalc' ? 0 : values.current, max: values.max });
                 if (!attr) { throw new Error('Attribute creation failed: ' + name); }
                 owned.attributes[name] = attr.id;
                 attrTouch.id = attr.id;
+                if (name !== 'recalc') { sheetChanged = true; }
             }
         });
         Object.keys(plan.abilities).forEach(function (key) {
@@ -4000,6 +4010,7 @@
                 journalTouch(manifest, report, 'attribute', id, name, 'remove');
                 getObj('attribute', id).remove();
                 delete owned.attributes[name];
+                if (name !== 'recalc') { sheetChanged = true; }
             }
         });
         Object.keys(oldPlan && oldPlan.abilities || {}).forEach(function (key) {
@@ -4025,6 +4036,17 @@
             }
         }
         captureDefaultToken(character, plan, manifest, snapshot, report);
+        if (sheetChanged && owned.attributes.recalc) {
+            var recalc = getObj('attribute', owned.attributes.recalc);
+            // Ordinary set is silent to workers; ensure a fresh 0 -> 1 request.
+            if (!sameValue(recalc.get('current'), 0)) {
+                journalTouch(manifest, report, 'attribute', recalc.id, 'recalc.current', 'set');
+                recalc.set({ current: 0 });
+            }
+            onSheetWorkerCompleted(done);
+            journalTouch(manifest, report, 'attribute', recalc.id, 'recalc.current', 'setWithWorker');
+            recalc.setWithWorker({ current: 1 });
+        } else { done(); }
     }
 
     function inspectRemoved(manifest, report) {
@@ -4053,7 +4075,7 @@
                     delete manifest.baseline.bindToken;
                     delete manifest.baseline.replaceAvatar;
                     Object.keys(plan.attributes).forEach(function (name) {
-                        if (preservesCurrent(name) && snapshot.attributes[name] && snapshot.attributes[name].length === 1) {
+                        if ((preservesCurrent(name) || name === 'recalc') && snapshot.attributes[name] && snapshot.attributes[name].length === 1) {
                             manifest.baseline.attributes[name].current = snapshot.attributes[name][0].values.current;
                         }
                     });
@@ -4194,7 +4216,7 @@
                         report.warnings.push('No token selected; Character created without managed token/default-token configuration.');
                     }
                     var projectedTouches = Object.keys(plan.character).length + Object.keys(plan.attributes).length +
-                        Object.keys(plan.abilities).length + (plan.bindToken ? 1 : 0) + (plan.defaultToken ? 3 : 0) + 1;
+                        Object.keys(plan.abilities).length + (plan.bindToken ? 1 : 0) + (plan.defaultToken ? 3 : 0) + 3;
                     if (manifest && manifest.baseline) {
                         projectedTouches += Object.keys(manifest.baseline.attributes).filter(function (name) { return !hasKey(plan.attributes, name); }).length;
                         projectedTouches += Object.keys(manifest.baseline.abilities).filter(function (key) { return !hasKey(plan.abilities, key); }).length;
@@ -4227,13 +4249,17 @@
                     manifest.pending = { plan: cloneData(plan), owned: cloneData(manifest.owned), sourceHandoutId: handout && handout.id || manifest.sourceHandoutId };
                     if (mode === 'import') { journalTouch(manifest, report, 'character', characterId, 'character', 'create'); }
                     mutationStarted = true;
+                    function afterApply() {
+                        if (released) { return; }
+                        manifest.lastOperation.status = 'awaiting-readback';
+                        verifyAndFinish(manifest, report, release);
+                    }
                     if (mode === 'adopt') {
                         manifest.pending.owned = snapshotOwned(plan, snapshot);
+                        afterApply();
                     } else {
-                        applyWritePlan(character, plan, manifest, snapshot, report);
+                        applyWritePlan(character, plan, manifest, snapshot, report, afterApply);
                     }
-                    manifest.lastOperation.status = 'awaiting-readback';
-                    verifyAndFinish(manifest, report, release);
                 } catch (applyError) { fail(applyError, mutationStarted); }
             }
             if (mode === 'import') { afterRead(null, { character: {}, attributes: {}, abilities: [], token: null, defaultToken: null }); }

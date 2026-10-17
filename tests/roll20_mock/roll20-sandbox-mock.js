@@ -62,7 +62,13 @@ class Roll20Object {
     }
 
     setWithWorker(prop, value) {
-        return this.set(prop, value);
+        if (this._attrs._type !== 'attribute' || typeof prop !== 'object') {
+            throw new Error('setWithWorker requires an Attribute and an object argument.');
+        }
+        const previous = Object.assign({}, this._attrs);
+        this.set(prop);
+        this._world.runSheetWorkers(this, prop, previous);
+        return this;
     }
 
     remove() {
@@ -84,6 +90,7 @@ function createRoll20Mock() {
     const timers = new Map();
     let timerId = 0;
     let now = 0;
+    const workerCallbacks = [];
 
     function makeId() {
         return '-MOCK' + String(nextId++).padStart(8, '0');
@@ -128,6 +135,10 @@ function createRoll20Mock() {
         hooks: {},
         suspendBlobs: false,
         defaultCapture: 'normal',
+        workerWrites: [],
+        emulateRecalc: false,
+        suspendWorkers: false,
+        workerDelay: 1,
 
         setTimeout(callback, delay) {
             const id = ++timerId;
@@ -235,9 +246,22 @@ function createRoll20Mock() {
         },
 
         onSheetWorkerCompleted(callback) {
-            if (typeof callback === 'function') {
-                world.setTimeout(callback, 1);
-            }
+            if (typeof callback === 'function') { workerCallbacks.push(callback); }
+        },
+
+        runSheetWorkers(attr, changes, previous) {
+            world.workerWrites.push({ id: attr.id, changes: Object.assign({}, changes), previous: previous.current });
+            const callbacks = workerCallbacks.splice(0);
+            if (world.suspendWorkers) { return; }
+            world.setTimeout(() => {
+                // Only model consumption of the control, not real sheet calculations.
+                if (world.emulateRecalc && attr.get('name') === 'recalc' &&
+                        String(changes.current) === '1' && String(previous.current) !== '1') {
+                    attr._attrs.current = '0';
+                }
+                if (world.hooks.sheetWorker) { world.hooks.sheetWorker(attr, changes); }
+                callbacks.forEach((callback) => callback());
+            }, world.workerDelay);
         },
 
         setDefaultTokenForCharacter(character, token) {
