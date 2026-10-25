@@ -146,7 +146,17 @@ function attrsFor(world, characterId) {
 }
 
 function abilitiesFor(world, characterId) {
-    return world.findObjs({ _type: 'ability', characterid: characterId });
+    // Structural macro assertions inspect the verified roll template behind
+    // runtime-dispatched actions; dispatch itself has dedicated lifecycle tests.
+    const manifest = world.state.D35StatblockImporter.characters[characterId];
+    const templates = manifest && manifest.baseline && manifest.baseline.attackMacros || {};
+    return world.findObjs({ _type: 'ability', characterid: characterId }).map((ability) => ({
+        get: (field) => {
+            const action = ability.get('action');
+            const match = String(action || '').match(/^!d35import roll @\{character_id\} (\S+) \d+$/);
+            return field === 'action' && match ? templates[decodeURIComponent(match[1])] : ability.get(field);
+        }
+    }));
 }
 
 function attrCurrent(attrs, name) {
@@ -589,6 +599,21 @@ function assertImport(world, payload, filePath) {
             !/(?:Listen|Spot)\s+[+\-]?\d+/.test(bio),
             sourceName + ': senses totals should not populate Biography'
         );
+    }
+
+    if ((offense.melee_lines || []).some((line) => (line.fragments || []).some((fragment) =>
+        /^6 slam \+29\/\+29\/\+24\/\+19\/\+14\/\+9 \(4d6\+12\)$/i.test(String(fragment && fragment.raw || ''))
+    ))) {
+        const actionNames = tokenActions.map((ability) => String(ability.get('name') || ''));
+        const singleSlam = tokenActions.find((ability) => ability.get('name') === 'Slam');
+        const fullSlam = tokenActions.find((ability) => ability.get('name') === 'Slam Full Attack');
+        assert.strictEqual(attrCurrent(attrs, 'weapon1name'), 'Slam', sourceName + ': expected one normalized Slam weapon');
+        assert.strictEqual(attrCurrent(attrs, 'weapon2name'), undefined, sourceName + ': compound slams should not consume a second weapon slot');
+        assert.ok(actionNames.includes('Slam'), sourceName + ': missing standalone Slam action');
+        assert.ok(actionNames.includes('Slam Full Attack'), sourceName + ': missing six-attack Slam full action');
+        assert.ok(!String(singleSlam && singleSlam.get('action') || '').includes('{{attack2='), sourceName + ': standalone Slam should contain one attack');
+        assert.ok(String(fullSlam && fullSlam.get('action') || '').includes('A6:'), sourceName + ': Slam full action should contain all six attacks');
+        assert.ok(String(attrCurrent(attrs, 'weapon1fullattackmacro') || '').includes('A6:'), sourceName + ': weapon full-attack macro should contain all six attacks');
     }
 
     if (['Mixed Weapon Natural Alternatives', 'Phanaton Tar-Gatherer'].includes(

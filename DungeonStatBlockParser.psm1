@@ -711,7 +711,7 @@ function Split-EmbeddedHeadingLine {
         'Atk Options ',
         'Special Actions ',
         'Combat Gear ',
-        'Abilities ',
+        '(?<!Spell-Like )(?<!Psi-Like )Abilities ',
         'SQ ',
         'Feats ',
         'Skills ',
@@ -729,6 +729,7 @@ function Split-EmbeddedHeadingLine {
             if ($match.Index -le 0) {
                 continue
             }
+            if ($pattern -eq 'AC\*? ' -and $clean -match '^AC\b') { continue }
 
             $prefix = $clean.Substring(0, $match.Index)
             $openParentheses = ([regex]::Matches($prefix, '\(')).Count
@@ -881,6 +882,7 @@ function Test-IsHeadingLine {
         '^hp\b',
         '^Immune\b',
         '^Resist\b',
+        '^SR\b',
         '^Fort\b',
         '^Weakness',
         '^Sp(?:d|eed)\b',
@@ -1297,7 +1299,7 @@ function Parse-AttackPart {
         Notes = ''
     }
 
-    if ($clean -match '^(?<prefix>.+?)\s+(?<bonus>[+\-]?\d+(?:/[+\-]?\d+)*)\s*\((?<damage>[^)]+)\)(?<notes>.*)$') {
+    if ($clean -match '^(?<prefix>.+?)\s+(?<bonus>[+\-]?\d+(?:/[+\-]?\d+)*)(?:\s+each)?\s*\((?<damage>[^)]+)\)(?<notes>.*)$') {
         $prefix = (ConvertTo-PlainText $Matches.prefix)
         $entry.Name = $prefix
         $entry.Damage = (ConvertTo-PlainText $Matches.damage)
@@ -1454,7 +1456,7 @@ function Parse-SpellHeaderLine {
         if ($Matches.paren) {
             $paren = $Matches.paren.Trim('(', ')')
         }
-        if ($paren -match 'CL\s+(?<cl>[^,]+)') {
+        if ($paren -match 'CL\s+(?<cl>[^,;]+)') {
             $result.CasterLevel = (ConvertTo-PlainText $Matches.cl)
         }
         if ($paren -match 'melee touch\s+(?<mt>[+\-]?\d+)') {
@@ -1501,13 +1503,15 @@ function Parse-UsageEntries {
                 if ($spellItem -match '\(DC\s*(?<dc>\d+)\)') {
                     $dc = $Matches.dc
                 }
+                $entryCasterLevel = $(if ($Header) { $Header.CasterLevel } else { '' })
+                if ($spellItem -match '\(CL\s+(?<cl>[^)]+)\)') { $entryCasterLevel = $Matches.cl }
                 $entries.Add([pscustomobject]@{
                     Kind = 'SpellLike'
                     Usage = $usage
                     Name = ConvertTo-NormalizedSpellName $spellItem
                     Raw = (ConvertTo-PlainText $spellItem)
                     SaveDC = $dc
-                    CasterLevel = $(if ($Header) { $Header.CasterLevel } else { '' })
+                    CasterLevel = $entryCasterLevel
                     Heading = $(if ($Header) { $Header.Heading } else { 'Spell-Like Abilities' })
                     MatchedMacro = ''
                     MatchedMacroPath = ''
@@ -2025,7 +2029,18 @@ function ConvertTo-ProjectModel {
         [string]$SpellMacroLibraryPath
     )
 
-    $paragraphRecords = @(Get-StatBlockParagraphRecords -Path $Path)
+    $rawRecords = @(Get-StatBlockParagraphRecords -Path $Path)
+    $joinedRecords = New-Object System.Collections.Generic.List[object]
+    foreach ($record in $rawRecords) {
+        $previous = if ($joinedRecords.Count) { $joinedRecords[$joinedRecords.Count - 1] } else { $null }
+        if ($previous -and $previous.Text -match '^(Melee|Ranged)\b' -and
+            $record.Text -notmatch '^(Melee|Ranged)\b' -and
+            $record.Text -match '^.+?\s+[+\-]\d+(?:/[+\-]\d+)*(?:\s+each)?\s*\(') {
+            $previous.Text += ' ' + $record.Text
+        }
+        else { $joinedRecords.Add($record) }
+    }
+    $paragraphRecords = @($joinedRecords | ForEach-Object { $_ })
     $paragraphs = @($paragraphRecords | ForEach-Object { $_.Text })
     $warnings = New-Object System.Collections.Generic.List[string]
 
@@ -2205,6 +2220,7 @@ function ConvertTo-ProjectModel {
                 break
             }
             '^Immune\b' { $model.Creature.Immune = ($line -replace '^Immune\s+', ''); break }
+            '^SR\b' { $model.Creature.SR = ($line -replace '^SR\s+', ''); break }
             '^Resist\b' {
                 $resist = Parse-ResistLine -Line $line
                 $model.Creature.Resist = $resist.Resist
@@ -2360,6 +2376,23 @@ function ConvertTo-ProjectModel {
             $model.Creature.Notes += @($lowerResult.Notes)
             foreach ($entry in $allLowerEntries) {
                 $entryKey = ConvertTo-ReferenceMatchKey -Name $entry.Name
+                # Some sources list an at-will SLA only in SQ and its full lower
+                # rule entry. Import it only when usage and caster level are explicit.
+                if ($entry.Type -eq 'Sp' -and $entry.Body -match '\bAt will\b' -and
+                    $entry.Body -match '\bcaster level\s+(?<cl>\d+(?:st|nd|rd|th)?)\b') {
+                    $lowerCasterLevel = $Matches.cl
+                    $alreadyListed = @($model.Creature.SpellLikeAbilities | Where-Object {
+                        (ConvertTo-ReferenceMatchKey -Name $_.Name) -eq $entryKey
+                    }).Count -gt 0
+                    if (-not $alreadyListed) {
+                        $model.Creature.SpellLikeAbilities += [pscustomobject]@{
+                            Kind='SpellLike'; Usage='At will'; Name=$entry.Name; Raw=$entry.Name
+                            SaveDC=''; CasterLevel=$lowerCasterLevel; Heading='Spell-Like Abilities'
+                            MatchedMacro=''; MatchedMacroPath=''
+                            Reference=[pscustomobject]@{ Name=$entry.Name; CompactRules=''; BodyParagraphs=@($entry.Body); Body=$entry.Body; Raw=$entry.Raw }
+                        }
+                    }
+                }
                 $isListedFeat = @($model.Creature.Feats -split '\s*,\s*' | Where-Object {
                     (ConvertTo-ReferenceMatchKey -Name $_) -eq $entryKey
                 }).Count -gt 0

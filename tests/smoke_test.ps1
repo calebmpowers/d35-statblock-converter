@@ -202,10 +202,14 @@ try {
             Assert-Equal -Label 'Annotated multiclass final class' -Actual $json.creature.header.classes[1].name -Expected 'rogue'
         }
         elseif ($fixture.file -eq 'Mixed Weapon Natural Alternatives.txt') {
-            Assert-Count -Label 'Mixed alternative melee fragments' -Items $json.creature.offense.melee_lines[0].fragments -Expected 5
+            Assert-Count -Label 'Mixed alternative melee fragments (duplicate secondary bite removed)' -Items $json.creature.offense.melee_lines[0].fragments -Expected 4
             if (@($json.creature.offense.melee_lines[0].fragments | Where-Object { $_.raw -match '(?i)bite.*spear|spear.*bite' }).Count -gt 0) {
                 throw 'A comma-separated alternative weapon routine was glued to a Bite fragment.'
             }
+        }
+        elseif ($fixture.file -eq 'Compound Natural Iteratives.txt') {
+            Assert-Count -Label 'Compound natural iterative fragments' -Items $json.creature.offense.melee_lines[0].fragments -Expected 1
+            Assert-Equal -Label 'Compound natural iterative routine' -Actual $json.creature.offense.melee_lines[0].fragments[0].raw -Expected '6 slam +29/+29/+24/+19/+14/+9 (4d6+12)'
         }
     }
 

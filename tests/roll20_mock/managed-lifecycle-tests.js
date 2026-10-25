@@ -14,7 +14,7 @@ function payload() {
         schema_version: 1,
         creature: {
             name: 'Lifecycle Mage', cr: '3',
-            header: { name: 'Lifecycle Mage', alignment_size_type: 'NE Medium humanoid (human)',
+            header: { name: 'Lifecycle Mage', source_reference: 'Fixture reference', alignment_size_type: 'NE Medium humanoid (human)',
                 init_line: 'Init +2', classes: [{ name: 'wizard', level: 3 }], languages_line: 'Languages Common' },
             defense: { ac_line: 'AC 15, touch 12, flat-footed 13', hp_line: 'hp 18 (3d4+6)',
                 fort_ref_will_line: 'Fort +3, Ref +3, Will +4' },
@@ -84,6 +84,88 @@ function runLifecycleTests(importer) {
     }
     function verified(report) { assert.strictEqual(report.status, 'verified', JSON.stringify(report.issues)); }
     function issue(report, code) { assert.ok(report.issues.some((item) => item.code === code), JSON.stringify(report.issues)); }
+
+    require('./usability-tests').runUsabilityTests(test, payload, verified);
+
+    ['V\u2019sesslin (Campaign Variant)', 'Yuan\u2011ti\u00a0Halfblood (Campaign Variant)'].forEach((name) =>
+        test('handout name lookup normalizes both sides: ' + name, (h) => {
+            const source = h.handout(payload()); source.set('name', name);
+            verified(h.send('import ' + name.replace(/\u2019/g, "'").replace(/\u2011/g, '-').replace(/\u00a0/g, ' ')));
+        }));
+
+    test('live attack rolls omit inactive modifiers and respond to later toggles', (h) => {
+        const c = h.create();
+        const ability = h.world.getObj('ability', c.manifest.owned.abilities.dagger);
+        const command = ability.get('action').replace('@{character_id}', c.character.id).replace(/^!d35import /, '');
+        function roll() {
+            h.send(command);
+            return h.world.chat.filter((entry) => entry.who === 'character|' + c.character.id).slice(-1)[0].message;
+        }
+        function total(message, field) {
+            const expression = message.match(new RegExp('\\{\\{' + field + '=[\\s\\S]*?\\[\\[([\\s\\S]*?)\\]\\]'))[1]
+                .replace(/@\{[^|}]+\|([^}]+)\}/g, (all, name) => '(' + (h.world.getAttrByName(c.character.id, name) || 0) + ')')
+                .replace(/\[[^\]]*\]/g, '').replace(/\d*d\d+(?:cs>\d+)?/g, '0').replace(/floor\(/g, 'Math.floor(');
+            return vm.runInNewContext(expression, {Math});
+        }
+        const inactive = roll();
+        assert.strictEqual(total(inactive, 'attack1'), 2);
+        assert.strictEqual(total(inactive, 'damage1'), 1);
+        ['[Epic AB]', '[Global bonus]', '[Flank]', '[Pow. Att.]', '[Smite]', '[Pr. Ha.]', '[Flurry]'].forEach((label) => assert.ok(!inactive.includes(label), label + ': ' + inactive));
+        function set(name, value) {
+            const attr = h.attr(c.character, name);
+            if (attr) { attr.set('current', value); }
+            else { h.world.createObj('attribute', {characterid:c.character.id, name, current:value}); }
+        }
+        set('globalAttackBonus', 2); set('flankEnabled', 2); set('powerAttackAttackBonus', -3);
+        set('fightingDefensivelyAttackBonus', -4); set('fightingDefensivelyEnabled', 0);
+        const active = roll();
+        assert.strictEqual(total(active, 'attack1'), 3);
+        ['[Global bonus]', '[Flank]', '[Pow. Att.]'].forEach((label) => assert.ok(active.includes(label), label));
+        assert.ok(!active.includes('[Fi. De.]'));
+        set('fightingDefensivelyEnabled', 1); const defensive = roll(); assert.ok(defensive.includes('[Fi. De.]'));
+        assert.strictEqual(total(defensive, 'attack1'), -1);
+        set('globalAttackBonus', 0); set('flankEnabled', 0); set('powerAttackAttackBonus', 0); set('fightingDefensivelyEnabled', 0);
+        assert.strictEqual(roll(), inactive);
+        const before = h.world.chat.length;
+        h.send(command, [], true, '-NOT-CONTROLLER');
+        assert.ok(!h.world.chat.slice(before).some((entry) => entry.who === 'character|' + c.character.id));
+        c.character.set('controlledby', '-CONTROLLER');
+        h.send(command, [], true, '-CONTROLLER');
+        assert.strictEqual(h.world.chat.slice(-1)[0].who, 'character|' + c.character.id);
+    });
+
+    test('refresh updates the selected managed Character by handout name without duplicates', (h) => {
+        const token = h.token(), c = h.create(payload(), [token]);
+        c.source.set('name', 'V\u2019sesslin (Campaign Variant)');
+        const changed = copy(c.data); changed.creature.defense.hp_line = 'hp 27 (3d4+15)';
+        c.source.set('gmnotes', JSON.stringify(changed));
+        h.attr(c.character, 'hitpoints').set('current', 3); token.set('bar1_value', 3);
+        verified(h.send("refresh V'sesslin (Campaign Variant)", [token]));
+        assert.strictEqual(h.world.findObjs({_type:'character'}).length, 1);
+        assert.strictEqual(h.attr(c.character, 'hitpoints').get('current'), 3);
+        assert.strictEqual(h.attr(c.character, 'hitpoints').get('max'), 27);
+        assert.strictEqual(token.get('bar1_value'), 3);
+        const before = h.objects();
+        h.send('refresh ' + c.source.id, []); assert.deepStrictEqual(h.objects(), before);
+        token.set('represents', ''); const unlinked = h.objects();
+        h.send('refresh ' + c.source.id, [token]); assert.deepStrictEqual(h.objects(), unlinked);
+    });
+
+    test('duplicate weapon profiles collapse while two-weapon routine bonuses remain exact', (h) => {
+        const data = payload();
+        data.creature.offense.melee_lines = [{ raw:'Melee rapier +8 (1d6+2/18-20) or rapier +6 (1d6+2/18-20) and dagger +5 (1d4+1/19-20)',
+            fragments:[{raw:'rapier +8 (1d6+2/18-20)'},{raw:'rapier +6 (1d6+2/18-20)'},{raw:'dagger +5 (1d4+1/19-20)'},{raw:'dagger +5 (1d4+1/19-20)'}]}];
+        const c = h.create(data);
+        assert.strictEqual(h.attr(c.character, 'weapon1name').get('current'), 'Rapier');
+        assert.strictEqual(h.attr(c.character, 'weapon2name').get('current'), 'Dagger');
+        assert.strictEqual(h.attr(c.character, 'weapon3name').get('current'), 'Light Crossbow');
+        assert.strictEqual(h.attr(c.character, 'weapon4name'), undefined);
+        const macros = c.manifest.baseline.attackMacros;
+        assert.ok(macros['melee routine 2']);
+        const names = h.world.findObjs({_type:'ability', characterid:c.character.id}).map((ability) => ability.get('name'));
+        assert.strictEqual(names.filter((name) => name==='Rapier').length, 1);
+        assert.ok(!names.includes('Rapier (Melee)'));
+    });
 
     [false, true].forEach((consume) => test('initial recalc request verifies with worker consumption=' + consume, (h) => {
         h.world.emulateRecalc = consume;
@@ -474,7 +556,7 @@ function runLifecycleTests(importer) {
         const token = h.token();
         token.set('represents', '-OTHER');
         assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
-        token.set({ represents: '', imgsrc: 'https://external.example/test.png' });
+        token.set({ represents: '', imgsrc: '' });
         assert.strictEqual(h.send('import ' + source.id, [token]).status, 'blocked');
         token.set({ imgsrc: 'https://files.d20.io/images/12345/fixture/thumb.png?1' });
         token._attrs._subtype = 'card'; // Simulate a backend-created card, not a writable token property.
@@ -483,6 +565,36 @@ function runLifecycleTests(importer) {
     });
 
     const visibilityFields = ['showname', 'showplayers_name', 'showplayers_bar1', 'showplayers_bar2'];
+
+    [
+        'https://files.d20.io/images/12345/fixture/thumb.png',
+        'https://files.d20.io/marketplace/12345/fixture/thumb.png?1',
+        'https://cdn.example.com/existing-token.png'
+    ].forEach((image) => test('existing token image imports and binds without cloning: ' + image, (h) => {
+        const token = h.token();
+        token.set('imgsrc', image);
+        h.world.hooks.beforeCreate = (type) => {
+            if (type === 'graphic') { throw new Error('This existing image cannot be cloned by the API.'); }
+        };
+        const c = h.create(payload(), [token]);
+        assert.strictEqual(token.get('imgsrc'), image);
+        assert.strictEqual(token.get('represents'), c.character.id);
+        const avatar = image.includes('/images/') ? image.replace('/thumb.', '/med.') : image;
+        assert.strictEqual(c.character.get('avatar'), avatar);
+        assert.strictEqual(JSON.parse(c.character._attrs._defaulttoken).imgsrc, image);
+        assert.strictEqual(h.world.findObjs({ _type: 'graphic' }).length, 1);
+        verified(h.send('audit ' + c.character.id));
+        verified(h.send('update ' + c.character.id + ' ' + c.source.id));
+        assert.strictEqual(c.character.get('avatar'), avatar);
+        verified(h.send('bind ' + c.character.id, [token]));
+    }));
+
+    test('new import copies the selected library token to the avatar without a flag', (h) => {
+        const token = h.token();
+        const c = h.create(payload(), [token]);
+        assert.strictEqual(c.character.get('avatar'), 'https://files.d20.io/images/12345/fixture/med.png?1');
+        verified(h.send('audit ' + c.character.id));
+    });
 
     test('omitted disabled saved visibility flags verify import, audit and no-change update', (h) => {
         const c = h.create(payload(), [h.token()]);
@@ -713,6 +825,7 @@ function runLifecycleTests(importer) {
     test('state survives sandbox restart and failed pending operations remain guarded', (h) => {
         const token = h.token();
         const c = h.create(payload(), [token]);
+        token.set('width', 140); // Require a new default-token capture rather than a no-op bind.
         h.world.defaultCapture = 'incorrect';
         assert.strictEqual(h.send('bind ' + c.character.id, [token]).status, 'readback-failed');
         h.world.handlers.ready = [];
@@ -783,12 +896,13 @@ function runLifecycleTests(importer) {
 
     test('newly mapped biography cannot overwrite unowned manual text', (h) => {
         const data = payload();
+        delete data.creature.header.source_reference;
         data.creature.bio_notes = '';
         const c = h.create(data);
         assert.ok(!has(c.manifest.baseline.character, 'bio'));
         c.character.set('bio', 'Manual narrative');
         const changed = copy(data);
-        changed.creature.bio_notes = 'New source narrative';
+        changed.creature.header.source_reference = 'Fixture reference';
         const report = h.send('update ' + c.character.id + ' ' + h.handout(changed).id);
         issue(report, 'unowned-collision');
         assert.strictEqual(c.character._attrs.bio, 'Manual narrative');
@@ -811,6 +925,7 @@ function runLifecycleTests(importer) {
     test('default capture failure cleans up its temporary graphic and journals the failure', (h) => {
         const c = h.create();
         const token = h.token();
+        token.set('layer', 'gmlayer'); // Force a scratch capture; the reusable policy uses objects.
         h.world.defaultCapture = 'throw';
         const report = h.send('bind ' + c.character.id, [token]);
         assert.strictEqual(report.status, 'partial-failure');

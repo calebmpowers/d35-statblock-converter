@@ -1,0 +1,19 @@
+Compound Natural Iteratives	CR 11
+N Huge plant
+Regression fixture.
+Init +4; Senses darkvision 60 ft., low-light vision; Listen +0, Spot +0
+Languages -
+
+AC 22, touch 8, flat-footed 22 (-2 size, +14 natural)
+hp 414 (24 HD)
+Fort +20, Ref +8, Will +8
+
+Spd 20 ft.
+Melee 2 slams +29 each (4d6+12) plus slam +24/+19/+14/+9 (4d6+12)
+Space 15 ft.; Reach 15 ft.
+Base Atk +18; Grp +38
+
+Abilities Str 34, Dex 10, Con 22, Int 5, Wis 10, Cha 6
+SQ plant traits
+Feats Improved Rapidstrike (slam), Rapidstrike (slam)
+Skills Listen +0, Spot +0

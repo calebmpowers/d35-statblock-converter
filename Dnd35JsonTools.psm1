@@ -263,7 +263,7 @@ function Convert-ProjectSpellsToRoll20Sections {
             -Type $spell.Heading `
             -CasterLevel $spell.CasterLevel `
             -Extras $(if ($Domains) { "Domains/Prohibited schools $Domains" } else { '' }) `
-            -GroupLabel ([string]$spell.Level) `
+            -GroupLabel $(if ($spell.Slots) { '{0} ({1})' -f $spell.Level, $spell.Slots } else { [string]$spell.Level }) `
             -Spell $spell `
             -Prepared $prepared
     }
@@ -336,6 +336,64 @@ function ConvertTo-Dnd35JsonModel {
     return ConvertFrom-ProjectModelToRoll20ImporterJson -Project $project
 }
 
+function ConvertTo-Roll20CompoundNaturalAttackFragment {
+    param(
+        [string]$RawLine,
+        [string]$Category
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RawLine)) {
+        return ''
+    }
+
+    $prefix = if ($Category -eq 'Melee') { '^Melee\*?\s+' } else { '^Ranged\*?\s+' }
+    $plainLine = ($RawLine `
+        -replace [char]0x2013, '-' `
+        -replace [char]0x2014, '-' `
+        -replace [char]0x2212, '-' `
+        -replace [char]0x00A0, ' ' `
+        -replace '\s+', ' ').Trim()
+    $body = $plainLine -replace $prefix, ''
+    $pattern = '^(?<count>\d+)\s+(?<plural>[\p{L}''\u2019 -]+?)\s+(?<primary>[+\-]\d+)\s+each\s+\((?<primaryDamage>[^)]+)\)\s+plus\s+(?<secondary>[\p{L}''\u2019 -]+?)\s+(?<secondaryBonuses>[+\-]\d+(?:/[+\-]\d+)*)\s+\((?<secondaryDamage>[^)]+)\)\s*$'
+    if ($body -notmatch $pattern) {
+        return ''
+    }
+
+    $primaryName = $Matches.plural.Trim().ToLowerInvariant()
+    $secondaryName = $Matches.secondary.Trim().ToLowerInvariant()
+    if ($primaryName.EndsWith('s')) {
+        $primaryName = $primaryName.Substring(0, $primaryName.Length - 1)
+    }
+    if ($secondaryName.EndsWith('s')) {
+        $secondaryName = $secondaryName.Substring(0, $secondaryName.Length - 1)
+    }
+    if ($primaryName -ne $secondaryName) {
+        return ''
+    }
+
+    $primaryDamage = ($Matches.primaryDamage -replace '\s+', ' ').Trim()
+    $secondaryDamage = ($Matches.secondaryDamage -replace '\s+', ' ').Trim()
+    if ($primaryDamage -ne $secondaryDamage) {
+        return ''
+    }
+
+    $attackCount = [int]$Matches.count
+    if ($attackCount -lt 1 -or $attackCount -gt 20) {
+        return ''
+    }
+
+    $bonuses = New-Object System.Collections.Generic.List[string]
+    for ($index = 0; $index -lt $attackCount; $index++) {
+        $bonuses.Add([string]$Matches.primary)
+    }
+    foreach ($bonus in $Matches.secondaryBonuses.Split('/')) {
+        $bonuses.Add($bonus)
+    }
+
+    $totalCount = $bonuses.Count
+    return "$totalCount $secondaryName $($bonuses -join '/') ($primaryDamage)"
+}
+
 function Get-Roll20AttackLineEntries {
     param(
         [object[]]$Attacks,
@@ -347,9 +405,23 @@ function Get-Roll20AttackLineEntries {
         return @()
     }
 
-    $fragments = foreach ($attack in @($Attacks | Where-Object { $_.Category -eq $Category })) {
-        [pscustomobject][ordered]@{
-            raw = $attack.Raw
+    $compoundFragment = ConvertTo-Roll20CompoundNaturalAttackFragment -RawLine $RawLine -Category $Category
+    if ($compoundFragment) {
+        $fragments = @(
+            [pscustomobject][ordered]@{
+                raw = $compoundFragment
+            }
+        )
+    }
+    else {
+        $seenFragments = @{}
+        $fragments = foreach ($attack in @($Attacks | Where-Object { $_.Category -eq $Category })) {
+            $fragmentKey = $attack.Raw.Trim().ToLowerInvariant()
+            if ($seenFragments.ContainsKey($fragmentKey)) { continue }
+            $seenFragments[$fragmentKey] = $true
+            [pscustomobject][ordered]@{
+                raw = $attack.Raw
+            }
         }
     }
 
@@ -678,7 +750,7 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
                 hp_line = $Project.Creature.HP.Raw
                 fort_ref_will_line = "Fort {0}, Ref {1}, Will {2}" -f $(if ($Project.Creature.Saves.Fort -ge 0) { "+$($Project.Creature.Saves.Fort)" } else { "$($Project.Creature.Saves.Fort)" }), $(if ($Project.Creature.Saves.Ref -ge 0) { "+$($Project.Creature.Saves.Ref)" } else { "$($Project.Creature.Saves.Ref)" }), $(if ($Project.Creature.Saves.Will -ge 0) { "+$($Project.Creature.Saves.Will)" } else { "$($Project.Creature.Saves.Will)" })
                 immune_line = $Project.Creature.Immune
-                resist_line = $Project.Creature.Resist
+                resist_line = (@($Project.Creature.Resist, $(if ($Project.Creature.SR) { "SR $($Project.Creature.SR)" })) | Where-Object { $_ }) -join '; '
                 weaknesses_line = $Project.Creature.Weaknesses
             }
             offense = [pscustomobject][ordered]@{
@@ -693,7 +765,7 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
                 spell_sections = @(Convert-ProjectSpellsToRoll20Sections -Spells $Project.Creature.Spells -SpellLikeAbilities $Project.Creature.SpellLikeAbilities -Powers $Project.Creature.Powers -Spellbook $Project.Creature.Spellbook -Domains $Project.Creature.Domains)
             }
             statistics = [pscustomobject][ordered]@{
-                abilities_line = "Abilities Str $($Project.Creature.Abilities.Str), Dex $($Project.Creature.Abilities.Dex), Con $($Project.Creature.Abilities.Con), Int $($Project.Creature.Abilities.Int), Wis $($Project.Creature.Abilities.Wis), Cha $($Project.Creature.Abilities.Cha)"
+                abilities_line = $(if (@($Project.Raw.Paragraphs | Where-Object { $_ -match '^Abilities\s+' }).Count) { @($Project.Raw.Paragraphs | Where-Object { $_ -match '^Abilities\s+' })[0] } else { "Abilities Str $($Project.Creature.Abilities.Str), Dex $($Project.Creature.Abilities.Dex), Con $($Project.Creature.Abilities.Con), Int $($Project.Creature.Abilities.Int), Wis $($Project.Creature.Abilities.Wis), Cha $($Project.Creature.Abilities.Cha)" })
                 sq_line = $(if ($Project.Creature.SQ) { "SQ $($Project.Creature.SQ)" } else { '' })
                 feats = @($feats | ForEach-Object { $_ })
                 feat_details = @($featDetails | ForEach-Object { $_ })

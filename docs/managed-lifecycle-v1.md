@@ -1,4 +1,4 @@
-# Managed Lifecycle v1 — importer 0.5.0
+# Managed Lifecycle v1 — importer 0.6.0
 
 This milestone extends the existing PowerShell → schema version 1 handout → Roll20 Mod pipeline. The parser, converter JSON schema, local app, and stat-block authoring contract are unchanged.
 
@@ -19,7 +19,7 @@ The attached audit brief described a prior read-only audit. The implementation r
 
 ## Commands
 
-All commands except help/ping require a GM player ID. Script-to-script messages do not bypass this requirement.
+Management commands require a GM player ID. Generated attack rolls also allow the Character's controllers. Script-to-script messages do not bypass these requirements.
 
 ```text
 !d35ping
@@ -30,20 +30,32 @@ All commands except help/ping require a GM player ID. Script-to-script messages 
 !d35import import <handout name or id> [--token <token-id>] [--avatar]
 !d35import create <handout name or id> [--token <token-id>] [--avatar]
 !d35import <handout name or id>
+!D35 Handout Name
 
 !d35import preview <character-id> <handout-id>
 !d35import update <character-id> <handout-id>
+!d35import refresh <handout name or id>
 !d35import adopt <character-id> <handout-id>
 !d35import bind <character-id> [--token <token-id>] [--avatar]
 !d35import audit <character-id>
 !d35import report
 ```
 
-`!d35` and `!d35importer` remain aliases. For managed operations, use IDs, not Character names. Import still accepts exact handout names; use IDs for names that contain option-like text.
+`!d35` and `!d35importer` remain case-insensitive aliases. Everyday creation is `!D35 Handout Name` with exactly one selected token; spaced names need no quotes. It rejects duplicate normalized names even when only one matching handout contains valid JSON. Import and refresh accept names or IDs, normalizing curly apostrophes, Unicode hyphens and whitespace. Explicit advanced `import` retains legacy payload-based ambiguity resolution and optional token setup. Use IDs for names containing option-like text or beginning with a command word.
 
 `import`/`create` deliberately creates a new managed Character. Reconversion uses `preview` followed by `update` to retain the same Character ID. A handout's name or a Character's matching name never establishes ownership or causes an automatic upsert.
 
-Import and bind accept one explicit token ID, or exactly one selected token. An explicit ID takes precedence over selection. Without a selected/explicit token, import creates a managed Character and reports that token setup was skipped. Binding requires a token. Portrait replacement requires `--avatar`; the default preserves the existing portrait.
+The bare one-command workflow requires exactly one valid selected token and performs image/dimension/page checks before Character creation. Explicit advanced `import` and `bind` accept one explicit token ID, or one selected token; an explicit ID takes precedence. Only explicit advanced `import` may omit a token, with a warning that setup was skipped. New imports with a token copy its image to the avatar automatically. Bind preserves the existing avatar unless `--avatar` is supplied. Existing token images do not require a particular library path or a query string; the selected token is captured directly when it matches the reusable-token policy.
+
+`refresh` updates the managed Character already linked to exactly one selected token, using the same preflight, ownership checks and HP/expenditure preservation as `update`. It never creates a Character. Install the new importer and replace the source handout's GM Notes before refreshing an older Character.
+
+Each weapon occupies one slot per attack type and mechanical profile. Repeated alternative profiles no longer create misleading `(Melee)` duplicates. Explicit multiweapon routines get separate `Melee Routine N` actions with their original bonuses, including off-hand and secondary attacks. Ambiguous comma-separated combinations are reported rather than inferred.
+
+Attack token actions call `!d35import roll` with their managed Character and verified action key. The verified manifest stores the roll template. At click time, the importer evaluates arithmetic modifiers against current sheet attributes, removes zero terms (including inactive toggle products), and sends the remaining roll template with Character-qualified attributes. Nonzero buffs and penalties remain live; unknown formulas are retained. This filtering applies inside critical-damage expressions too. Sheet weapon buttons retain their standard sheet formulas.
+
+The arithmetic evaluator supports numbers, parentheses, unary signs, arithmetic operators, and `floor`, `ceil`, `round`, `abs`, with bounded attribute recursion. Missing/empty local modifiers count as zero; dice, queries, unsupported formulas and cross-Character references remain for Roll20 to resolve. A cyclic or unsupported formula can still produce a Roll20 error and must be corrected on the sheet. The dispatcher requires this Mod and a verified manifest; it refuses pending imports, stale template signatures, and unauthorized players. No sandbox or sheet-default lookup is used as stored-object verification evidence.
+
+The canonical attack line determines attack count, damage, threats and multipliers. Toggles change existing rolls; they do not invent extra attacks for newly enabled haste, Rapid Shot, flurry, or a new weapon routine. Use an explicitly authored routine or the sheet's configured attack controls for those cases. Imported attack/damage adjustments retain source totals; weapon-specific situational effects whose applicability is absent from schema v1 require sheet configuration or the appropriate global attack/damage modifier. In particular, manufactured-weapon Power Attack damage is not inferred from wielding style; set the corresponding global damage bonus for the chosen routine. Check such effects live. Ranged token actions omit melee-only flank/higher-ground terms.
 
 Preview reads the current objects, reports conflicts, and includes the proposed plan in its JSON report. It does not change Roll20 objects or the verified manifest. It does replace the latest diagnostic report. Update performs a fresh preflight; preview is not a reservation or an approval token.
 
@@ -80,7 +92,7 @@ The state namespace is `state.D35StatblockImporter`:
 
 Plans contain `character`, `attributes` (`current` and `max`), `abilities`, `rows`, `tokenPolicy`, and, when owned, a bound-token reference and reusable `defaultToken` template. `preservedCurrent` identifies live values left alone. Existing preserved live values are recorded as actually observed when a successful readback commits the baseline; they are excluded from ordinary source-value conflict enforcement.
 
-The importer currently owns the existing mapped sheet Attributes, generated weapon Abilities, Character name, and biography when the source supplies it. It does not claim Character GM Notes or permissions. Portrait ownership is acquired only by explicit `--avatar`. Unowned nonempty biography text blocks an update that would newly introduce source biography text.
+The importer owns mapped sheet Attributes, generated weapon Abilities, Character name, and biography when the source supplies a reference. Bio and NPC Description contain only `Source: <canonical header.source_reference>` (including the existing legacy header normalization), or remain empty. It never infers publication/page details from filenames or prose. Legacy unclassified notes move to Other; recognized rules retain their existing mechanical mappings. Managed updates replace previous owned biography/description text in place, including clearing an obsolete biography when the source is absent. Manually edited owned text blocks mutation; unowned biography remains untouched unless a new source reference would collide with it. It does not claim Character GM Notes or permissions. Portrait ownership is acquired on token-backed creation or an explicit `bind --avatar`.
 
 Spell row keys use spell family, normalized section label, level, normalized spell name, special-spell usage group where applicable, and occurrence. Maneuver keys use name, level, discipline/school, and occurrence. Existing keys reuse their saved row IDs. New keys receive new IDs. Ability keys use the existing generated, normalized display names. Changes to attack bonuses or macro content retain an Ability's ID when its name is unchanged.
 
@@ -153,8 +165,8 @@ Verified locally on 2026-10-12: the full release-readiness gate (PowerShell synt
 ## Proposed live acceptance test — not performed
 
 1. Make a backup/copy of a test campaign using the actual compatible D&D 3.5 sheet. Record its sandbox version and other installed Mods. Use a disposable test page and library-uploaded token image.
-2. After explicitly authorizing installation, paste the bundled 0.5.0 script. Run `!d35ping` and `!d35import help`. Confirm a non-GM cannot import, update, bind, adopt, or export reports.
-3. Convert a representative caster with attacks, multiple spells, and lower rules using the unchanged local app. Place the JSON in a handout. Import with one selected token and `--avatar`. Record the reported Character ID.
+2. Paste the bundled 0.6.0 script into the disposable game's Mod editor. Run `!d35ping` and `!d35import help`. Confirm a non-GM cannot import, update, bind, adopt, or export reports.
+3. Convert a representative caster with attacks, multiple spells, and lower rules using the local app. Place the JSON in a named handout's GM Notes. Select one unbound token and run `!D35 Handout Name`, with no flags. Record the reported Character ID.
 4. Run `audit <character-id>` and then `report`. Confirm the JSON shows stored-object verification, correct current/max Attributes, Abilities/rows, portrait, and default-token fields, while sheet-calculation verification remains false.
 5. Drag the Character onto a fresh page. Check represented Character, image, dimensions, name visibility, unlinked HP/AC bars, full baseline HP, and reusable token settings. Confirm no temporary capture graphic remains.
 6. Damage the original encounter token and Character HP, spend a spell, change maneuver readiness if present, add a status marker, move/rotate the token, and change its lighting/tint/layer. Add a manual Attribute and Ability, set permissions, and add unowned saved-token vision settings.

@@ -2,7 +2,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'D35 Statblock Importer';
-    var VERSION = '0.5.0';
+    var VERSION = '0.6.0';
     var COMMAND = '!d35import';
     var COMMAND_ALIASES = ['!d35import', '!d35importer', '!d35'];
     var PING_COMMAND = '!d35ping';
@@ -408,7 +408,7 @@
     }
 
     function normalizeNameTarget(value) {
-        return trim(normalizeText(value));
+        return trim(normalizeText(value)).replace(/[\u2010-\u2015\u2212]/g, '-').replace(/\s+/g, ' ');
     }
 
     function commandBoundaryMatches(content, command) {
@@ -442,22 +442,22 @@
 
         var verbMatch = body.match(/^(\w+)(?:\s+(.+))?$/);
         if (!verbMatch) {
-            return { verb: 'import', target: body };
+            return { verb: 'import', target: body, simple: true };
         }
 
         var verb = verbMatch[1].toLowerCase();
         var target = trim(verbMatch[2] || '');
-        if (verb === 'help' || verb === 'validate' || verb === 'create' || verb === 'import' || verb === 'bind' || verb === 'preview' || verb === 'update' || verb === 'adopt' || verb === 'audit' || verb === 'report') {
+        if (verb === 'help' || verb === 'validate' || verb === 'create' || verb === 'import' || verb === 'bind' || verb === 'preview' || verb === 'update' || verb === 'adopt' || verb === 'audit' || verb === 'report' || verb === 'roll' || verb === 'refresh') {
             return { verb: verb, target: target };
         }
-        return { verb: 'import', target: body };
+        return { verb: 'import', target: body, simple: true };
     }
 
     function describeHandout(handout) {
         return '"' + String(handout && handout.get ? handout.get('name') : '') + '" (' + String(handout && handout.id ? handout.id : '') + ')';
     }
 
-    function resolveHandout(target, callback) {
+    function resolveHandout(target, callback, strict) {
         var normalized = normalizeNameTarget(target);
         if (!normalized) {
             callback({ handout: null, error: 'Handout name or id is required.', info: null });
@@ -470,7 +470,12 @@
             return;
         }
 
-        var matches = findObjs({ _type: 'handout', name: normalized });
+        var matches = findObjs({ _type: 'handout', name: trim(target) });
+        if (strict || !matches.length) {
+            matches = findObjs({ _type: 'handout' }).filter(function (handout) {
+                return normalizeNameTarget(handout.get('name')) === normalized;
+            });
+        }
         if (!matches.length) {
             callback({ handout: null, error: 'No handout found with the exact name "' + normalized + '".', info: null });
             return;
@@ -480,6 +485,10 @@
             return;
         }
 
+        if (strict) {
+            callback({ handout: null, error: 'Multiple handouts match. Use a unique handout name or its ID.', info: null });
+            return;
+        }
         chooseImportHandout(matches, function (validMatches) {
             if (validMatches.length === 1) {
                 callback({
@@ -1214,7 +1223,7 @@
             typeLine = ancestry;
             ancestry = '';
         } else if (looksLikeTypeLine(ancestry) && looksLikeSourceReference(typeLine)) {
-            sourceReference = typeLine;
+            sourceReference = sourceReference || typeLine;
             typeLine = ancestry;
             ancestry = '';
         }
@@ -2161,10 +2170,12 @@
         }
 
         if (normalizedHeader.sourceReference) {
-            bioParts.push('Source: ' + normalizedHeader.sourceReference);
+            bioParts.push('Source: ' + normalizedHeader.sourceReference.replace(/^Source:\s*/i, ''));
         }
         if (extra.bio) {
-            bioParts.push(extra.bio);
+            // Legacy/unclassified notes may contain gameplay rules. Preserve them
+            // in Other; Bio and NPC Description are exclusively source references.
+            otherParts.push(extra.bio);
         }
 
         return {
@@ -2198,7 +2209,9 @@
             result.count = safeNumber(leadingCount[1]) || 1;
         }
 
-        var match = text.match(/^(.*?)\s+([+-]\d+(?:\/[+-]\d+)*)\b(.*)$/);
+        // Match the bonus before damage, not the Strength rating in a bow name.
+        var match = text.match(/^(.*?)\s+([+-]\d+(?:\/[+-]\d+)*)\s*((?:(?:each|melee|ranged|touch)\s+)*\(.*)$/) ||
+            text.match(/^(.*?)\s+([+-]\d+(?:\/[+-]\d+)*)\b(.*)$/);
         if (!match) {
             result.displayName = toDisplayCase(trim(text));
             result.notes.push(text);
@@ -2284,6 +2297,27 @@
     }
 
     function dedupeWeaponNames(weapons, feats, offense) {
+        // A weapon is not a separate weapon merely because an alternative
+        // routine uses it at a lower bonus. Keep the strongest standalone
+        // profile; the original routines are retained separately below.
+        var unique = [];
+        var profiles = {};
+        weapons.forEach(function (weapon) {
+            var natural = getNaturalWeaponRoutineKey(weapon);
+            var key = natural || [weapon.attackType, normalizeLookupText(weapon.displayName),
+                weapon.critMin, weapon.critMultiplier, normalizeLookupText(weapon.damageNotes)].join('|');
+            // Rapid Shot is a deliberate, distinct mode rather than a duplicate.
+            if (isRapidShotVariant(weapon, feats, offense)) { key += '|rapid'; }
+            var index = profiles[key];
+            if (index === undefined) { profiles[key] = unique.length; unique.push(weapon); }
+            else {
+                var previous = unique[index];
+                var first = weapon.attackBonuses[0];
+                var best = previous.attackBonuses[0];
+                if (first > best || (first === best && weapon.count > previous.count)) { unique[index] = weapon; }
+            }
+        });
+        weapons = unique;
         var counts = {};
         var naturalRoutineCounts = {};
         weapons.forEach(function (weapon) {
@@ -2361,6 +2395,48 @@
         pushFromLines(offense.melee_lines, 'Melee');
         pushFromLines(offense.ranged_lines, 'Ranged');
         return dedupeWeaponNames(weapons, feats, offense);
+    }
+
+    function splitAttackConnectors(text, connector) {
+        var parts = [], depth = 0, start = 0, i;
+        for (i = 0; i < text.length; i += 1) {
+            if (text.charAt(i) === '(') { depth += 1; }
+            if (text.charAt(i) === ')') { depth -= 1; }
+            var match = depth === 0 && text.slice(i).match(connector);
+            if (match) { parts.push(trim(text.slice(start, i))); i += match[0].length - 1; start = i + 1; }
+        }
+        parts.push(trim(text.slice(start)));
+        return parts.filter(Boolean);
+    }
+
+    function addAlternativeRoutineActions(plan, model) {
+        ['melee_lines', 'ranged_lines'].forEach(function (field) {
+            var type = field === 'melee_lines' ? 'Melee' : 'Ranged';
+            var seen = {}, number = 0;
+            asArray(model.offenseSection[field]).forEach(function (line) {
+                var text = trim(normalizeText(line.raw || '').replace(/^(?:Melee|Ranged)\s+/i, ''));
+                if (splitAttackConnectors(text, /^,\s*/).length > 1) {
+                    model.warnings.push('Comma-separated ' + type.toLowerCase() + ' routines are ambiguous; standalone weapons were retained, but no combined routine action was inferred. Source: ' + text);
+                    return;
+                }
+                var alternatives = splitAttackConnectors(text, /^(?:,?\s+or\s+)/i);
+                alternatives.forEach(function (alternative) {
+                    number += 1;
+                    var parts = splitAttackConnectors(alternative, /^(?:\s+and\s+|,\s+)/i);
+                    if (parts.length < 2 || seen[alternative]) { return; }
+                    seen[alternative] = true;
+                    var weapons = parts.map(function (part) { return parseAttackFragment(part, type); });
+                    if (weapons.some(function (weapon) { return !weapon.attackBonuses.length || !weapon.damage; })) { return; }
+                    var name = type + ' Routine ' + number;
+                    var action = weapons.map(function (weapon) {
+                        var bonuses = getCountBasedFullAttackBonuses(weapon);
+                        return buildTokenActionMacro(model.name, weapon, model, bonuses.length ? bonuses : null,
+                            name + ': ' + weapon.displayName);
+                    }).join('\n');
+                    addPlanAbility(plan, name, action, true);
+                });
+            });
+        });
     }
 
     function buildCritDamage(damage, critMultiplier) {
@@ -2591,7 +2667,7 @@
             return bonuses;
         }
         if (weapon.attackBonuses && weapon.attackBonuses.length > 1) {
-            return bonuses;
+            return weapon.attackBonuses.length === weapon.count ? weapon.attackBonuses.slice() : bonuses;
         }
         for (i = 0; i < weapon.count; i += 1) {
             bonuses.push(firstBonus);
@@ -2656,8 +2732,6 @@
         var firstBonus = attackBonuses[0] || 0;
         var attackBonusTerms = [
             '@{globalAttackBonus}[Global bonus]',
-            '@{flankEnabled}[Flank]',
-            '@{higherGroundEnabled}[Higher Ground]',
             '@{bardicMusicAttackBonus}[Music]',
             '@{spellsAttackBonus}[Spells]',
             '@{powersAttackBonus}[Powers]',
@@ -2686,6 +2760,8 @@
             attackBonusTerms.push('(@{rapidShotEnabled}*@{rapidShotAttackBonus})[Rapid]');
             attackBonusTerms.push('(@{manyShotEnabled}*@{manyShotAttackBonus})[Manyshot]');
         } else {
+            attackBonusTerms.push('@{flankEnabled}[Flank]');
+            attackBonusTerms.push('@{higherGroundEnabled}[Higher Ground]');
             attackBonusTerms.push('(@{twoWeaponsEnabled}*@{primaryHandAttackBonus})[Pr. Ha.]');
             attackBonusTerms.push('(@{flurryBlowsEnabled}*@{flurryBlowsAttackBonus})[Flurry]');
             attackBonusTerms.push('@{powerAttackAttackBonus}[Pow. Att.]');
@@ -2714,9 +2790,9 @@
             } else {
                 baseDamage = String(damageResidual || 0);
             }
-            var attackCalc = '1d20cs>' + (weapon.critMin || 20) + ' + @{bab}[BAB] + @{epicattackbonus}[Epic AB] + ' + attackStatExpr + '[Ability] + @{size}[size] + ' + (weapon.enhancementBonus || 0) + '[Weapon Enh] + ' + attackResidual + '[Weapon Focus] + ' + attackBonusTerms.join(' + ') + (delta ? ' + ' + delta + '[Routine]' : '');
+            var attackCalc = '1d20cs>' + (weapon.critMin || 20) + ' + @{bab}[BAB] + @{epicattackbonus}[Epic AB] + ' + attackStatExpr + '[Ability] + @{size}[size] + ' + (weapon.enhancementBonus || 0) + '[Weapon Enh] + ' + attackResidual + '[Attack adjustment] + ' + attackBonusTerms.join(' + ') + (delta ? ' + ' + delta + '[Routine]' : '');
             var damageCalc = baseDamage + '[Dmg] + ' + damageProfile.expr + '[Weapon Dmg Ability] + ' + (weapon.enhancementBonus || 0) + '[Weapon Enh] + ' + damageBonusTerms.join(' + ') + '';
-            var critCalc = '(' + ((weapon.critMultiplier || 2) - 1) + ') * (' + damageCalc + ')';
+            var critCalc = (weapon.critMultiplier || 2) === 2 ? damageCalc : '(' + (weapon.critMultiplier - 1) + ') * (' + damageCalc + ')';
 
             if (!messages[chunkIndex]) {
                 messages[chunkIndex] = [
@@ -2742,7 +2818,7 @@
             return messages;
         }, []).map(function (parts, index) {
             parts.push('{{fumbleroll=Fumble: [[ d20 ]] }}');
-            parts.push('{{fullattackflag=' + (attackBonuses.length > 1 ? '[[ d1 ]]' : '[[0d1]]') + '}}');
+            if (attackBonuses.length > 1) { parts.push('{{fullattackflag=[[ d1 ]]}}'); }
             if (index === 0 && notes) {
                 parts.push('{{notes=' + escapeMacroText(notes) + '}}');
             }
@@ -2991,6 +3067,11 @@
         var key = normalizeLookupText(name);
         if (plan.abilities[key]) {
             throw new Error('Ambiguous generated Ability identity: ' + name);
+        }
+        if (tokenAction && action.indexOf('&{template:DnD35Attack}') === 0) {
+            plan.attackMacros = plan.attackMacros || {};
+            plan.attackMacros[key] = action;
+            action = COMMAND + ' roll @{character_id} ' + encodeURIComponent(key) + ' ' + attackMacroSignature(action);
         }
         plan.abilities[key] = { name: name, action: action, istokenaction: !!tokenAction };
     }
@@ -3405,7 +3486,17 @@
             var countBasedFullAttackBonuses = getCountBasedFullAttackBonuses(weapon);
             if (prefix) {
                 if (shouldCreateWeaponTokenAction(weapon) && preferredStandaloneIndexes[index]) {
-                    addPlanAbility(plan, weapon.displayName, buildTokenActionMacro(model.name, weapon, model), true);
+                    addPlanAbility(
+                        plan,
+                        weapon.displayName,
+                        buildTokenActionMacro(
+                            model.name,
+                            weapon,
+                            model,
+                            countBasedFullAttackBonuses.length ? [weapon.attackBonuses[0]] : null
+                        ),
+                        true
+                    );
                 }
                 if (shouldCreateWeaponTokenAction(weapon) && countBasedFullAttackBonuses.length) {
                     addPlanAbility(plan, weapon.displayName + ' Full Attack', buildTokenActionMacro(model.name, weapon, model, countBasedFullAttackBonuses, 'Full Attack with ' + weapon.displayName), true);
@@ -3416,6 +3507,7 @@
         if (model.textBundles.bio) {
             plan.character.bio = model.textBundles.bio;
         }
+        addAlternativeRoutineActions(plan, model);
         if (manifest && manifest.baseline) {
             Object.keys(manifest.baseline.character).forEach(function (field) {
                 if (!Object.prototype.hasOwnProperty.call(plan.character, field)) {
@@ -3600,8 +3692,10 @@
         if (represents && represents !== characterId) {
             throw new Error('The token already represents another Character. Unbind it explicitly first.');
         }
-        if (!normalizeRoll20ImageUrl(image, 'thumb') || String(image).indexOf('?') === -1) {
-            throw new Error('Use an uploaded Roll20-library token image with a query string.');
+        // This is an existing Roll20 graphic, not a new image upload. Library,
+        // marketplace and CDN tokens need not share one URL shape or query string.
+        if (!/^https?:\/\/\S+$/i.test(String(image || ''))) {
+            throw new Error('The selected token must have a valid HTTP(S) image URL.');
         }
         if (!(Number(token.get('width')) > 0) || !(Number(token.get('height')) > 0)) {
             throw new Error('The token must have positive width and height.');
@@ -3894,7 +3988,9 @@
             'Sheet calculations / roll behavior verified: no (live commissioning required).',
             'Warnings: ' + (report.warnings || []).length,
             'Issues: ' + report.issues.length + '; preserved values: ' + report.preserved.length + '; touched objects/fields: ' + report.touched.length
-        ].concat((report.warnings || []).slice(0, 4)).concat(report.issues.slice(0, 8).map(function (issue) { return issue.code + ': ' + issue.path; })).concat([
+        ].concat((report.warnings || []).slice(0, 4)).concat(report.issues.slice(0, 8).map(function (issue) {
+            return issue.code + ': ' + issue.path + (issue.code === 'operation-error' && issue.observed ? ' — ' + issue.observed : '');
+        })).concat([
             'Machine-readable JSON: ' + COMMAND + ' report (exports the latest report to a GM-only handout).'
         ])));
     }
@@ -3910,10 +4006,21 @@
     function captureDefaultToken(character, plan, manifest, snapshot, report) {
         var props;
         var scratch;
+        var existing;
         if (!plan.defaultToken) { return; }
-        if (!plan.bindToken && snapshot.defaultToken && DEFAULT_FIELDS.every(function (field) {
+        if (snapshot.defaultToken && DEFAULT_FIELDS.every(function (field) {
             return sameDefaultTokenValue(snapshot.defaultToken[field], plan.defaultToken[field], field);
         })) { return; }
+        // Capture the actual selected token when it already matches the reusable
+        // policy. This also works for marketplace images that the API cannot clone.
+        existing = plan.bindToken && plan.token && getObj('graphic', plan.token.id);
+        if (!snapshot.defaultToken && existing && DEFAULT_FIELDS.every(function (field) {
+            return sameDefaultTokenValue(existing.get(field), plan.defaultToken[field], field);
+        })) {
+            setDefaultTokenForCharacter(character, existing);
+            journalTouch(manifest, report, 'character', character.id, '_defaulttoken', 'capture');
+            return;
+        }
         // Keep unowned saved-token properties, including deliberately configured vision.
         props = Object.assign({}, snapshot.defaultToken || {}, cloneData(plan.defaultToken));
         // Graphic underscore properties and identity aliases are read-only. Keep all
@@ -4189,9 +4296,9 @@
                 if (released) { return; }
                 plan = mode === 'bind' ? cloneData(manifest.baseline) : buildWritePlan(model, manifest);
                 delete plan.bindToken;
-                token = (mode === 'import' || mode === 'bind') ? resolveToken(msg, options.tokenId, mode === 'bind') : null;
+                token = (mode === 'import' || mode === 'bind') ? resolveToken(msg, options.tokenId, mode === 'bind' || options.simple) : null;
                 if (options.avatar && !token) { throw new Error('--avatar requires a token.'); }
-                if (token) { addTokenIntent(plan, token, characterId, options.avatar); }
+                if (token) { addTokenIntent(plan, token, characterId, mode === 'import' || options.avatar); }
                 finishPlan(plan, manifest, characterId);
             } catch (planError) { fail(planError); return; }
             function afterRead(error, snapshot) {
@@ -4301,19 +4408,114 @@
         sendGM(renderList('JSON Report Exported', ['GM-only handout id: ' + handout.id]));
     }
 
+    // Evaluate only arithmetic modifiers, never JavaScript or dice expressions.
+    // Unknown expressions remain in the roll rather than being silently dropped.
+    function attackMacroSignature(macro) {
+        var hash = 0, i;
+        for (i = 0; i < macro.length; i += 1) { hash = ((hash * 31) + macro.charCodeAt(i)) | 0; }
+        return String(hash >>> 0);
+    }
+
+    function evaluateLiveModifier(text, characterId, depth) {
+        if ((depth || 0) > 12) { return null; }
+        var unknown = false;
+        text = String(text).replace(/\[[^\]]*\]/g, '').replace(/@\{([^}]+)\}/g, function (all, name) {
+            // Cross-character references and selected/target references are not
+            // local attribute names. Let Roll20 resolve these unknown formulas.
+            if (name.indexOf('|') !== -1) { unknown = true; return '0'; }
+            var value = getAttrByName(characterId, name);
+            if (value === undefined || value === null || value === '') { return '0'; }
+            var number = evaluateLiveModifier(String(value), characterId, (depth || 0) + 1);
+            if (number === null) { unknown = true; return '0'; }
+            return '(' + number + ')';
+        }).replace(/\s+/g, '');
+        if (unknown || !text) { return null; }
+        var tokens = text.match(/(?:\d+(?:\.\d+)?|\.\d+)|floor|ceil|round|abs|[()+\-*/]/g) || [];
+        if (tokens.join('') !== text) { return null; }
+        var index = 0;
+        function atom() {
+            var token = tokens[index++];
+            if (token === '+' || token === '-') { return (token === '-' ? -1 : 1) * atom(); }
+            if (token === '(') { var nested = sum(); if (tokens[index++] !== ')') { throw new Error('parenthesis'); } return nested; }
+            if (/^(floor|ceil|round|abs)$/.test(token || '')) {
+                if (tokens[index++] !== '(') { throw new Error('function'); }
+                var argument = sum(); if (tokens[index++] !== ')') { throw new Error('parenthesis'); }
+                return Math[token](argument);
+            }
+            if (!token || !/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(token)) { throw new Error('number'); }
+            return Number(token);
+        }
+        function product() { var value = atom(); while (tokens[index] === '*' || tokens[index] === '/') { var op = tokens[index++], next = atom(); value = op === '*' ? value * next : value / next; } return value; }
+        function sum() { var value = product(); while (tokens[index] === '+' || tokens[index] === '-') { var op = tokens[index++], next = product(); value = op === '+' ? value + next : value - next; } return value; }
+        try { var result = sum(); return index === tokens.length && isFinite(result) ? result : null; }
+        catch (error) { return null; }
+    }
+
+    function compactLiveAttackMacro(macro, characterId) {
+        function compactExpression(expression) {
+            var rebuilt = '', position = 0, nesting = 0, begin = -1, cursor;
+            for (cursor = 0; cursor < expression.length; cursor += 1) {
+                if (expression.charAt(cursor) === '(') { if (nesting === 0) { begin = cursor; } nesting += 1; }
+                if (expression.charAt(cursor) === ')' && nesting > 0) {
+                    nesting -= 1;
+                    if (nesting === 0) {
+                        rebuilt += expression.slice(position, begin) + '(' + compactExpression(expression.slice(begin + 1, cursor)) + ')';
+                        position = cursor + 1;
+                    }
+                }
+            }
+            expression = rebuilt + expression.slice(position);
+            var terms = [], start = 0, depth = 0, label = false, i;
+            for (i = 0; i < expression.length; i += 1) {
+                var ch = expression.charAt(i);
+                if (ch === '[') { label = true; } else if (ch === ']') { label = false; }
+                if (!label) {
+                    if (ch === '(' || ch === '{') { depth += 1; }
+                    if (ch === ')' || ch === '}') { depth -= 1; }
+                    if (ch === '+' && depth === 0) { terms.push(trim(expression.slice(start, i))); start = i + 1; }
+                }
+            }
+            terms.push(trim(expression.slice(start)));
+            terms = terms.filter(function (term) { return term && evaluateLiveModifier(term, characterId, 0) !== 0; });
+            return terms.join(' + ') || '0';
+        }
+        return macro.replace(/\[\[([\s\S]*?)\]\]/g, function (all, expression) {
+            return '[[ ' + compactExpression(expression) + ' ]]';
+        }).replace(/@\{([^}]+)\}/g, function (all, name) { return name.indexOf('|') === -1 ? '@{' + characterId + '|' + name + '}' : all; });
+    }
+
+    function rollManagedAttack(msg, target) {
+        var args = trim(target).split(/\s+/);
+        var character = args.length === 3 && getObj('character', args[0]);
+        if (!character) { throw new Error('Attack requires a Character ID and attack key.'); }
+        var controllers = String(character.get('controlledby') || '').split(',');
+        if (!playerIsGM(msg.playerid) && controllers.indexOf('all') === -1 && controllers.indexOf(msg.playerid) === -1) {
+            throw new Error('You must control this Character to roll its attacks.');
+        }
+        var manifest = lifecycleState().characters[character.id];
+        var key = decodeURIComponent(args[1]);
+        var macro = manifest && !manifest.pending && manifest.baseline && manifest.baseline.attackMacros && manifest.baseline.attackMacros[key];
+        if (!macro) { throw new Error('No verified managed attack exists for that key. Update the Character first.'); }
+        if (args[2] !== attackMacroSignature(macro)) { throw new Error('This attack action is outdated. Use the current Character token action.'); }
+        compactLiveAttackMacro(macro, character.id).split('\n').forEach(function (line) {
+            sendChat('character|' + character.id, line);
+        });
+    }
+
     function showHelp() {
         sendGM(renderList(SCRIPT_NAME + ' v' + VERSION, [
             PING_COMMAND + ' — API listener check',
             COMMAND + ' validate <handout name or id>',
             COMMAND + ' import <handout name or id> [--token <id>] [--avatar] (create is an alias)',
-            COMMAND + ' <handout name or id> — same as import; creates a new managed Character',
+            '!D35 <handout name or id> — select one token; creates and verifies a managed Character, portrait, bars, default token and actions',
             COMMAND + ' preview <character-id> <handout-id>',
             COMMAND + ' update <character-id> <handout-id>',
+            COMMAND + ' refresh <handout name or id> — update the managed Character linked to the selected token',
             COMMAND + ' adopt <character-id> <handout-id> — claim only matching mapped objects; no sheet writes',
             COMMAND + ' bind <character-id> [--token <id>] [--avatar]',
             COMMAND + ' audit <character-id>',
             COMMAND + ' report — export latest machine-readable JSON report',
-            'Import/bind accept exactly one selected token when --token is omitted. Portrait replacement requires --avatar.',
+            'Import/bind accept exactly one selected token when --token is omitted. New imports copy its image to the Character avatar automatically. Bind preserves existing portraits unless --avatar is supplied.',
             'Aliases: !d35importer and !d35. Managed commands require GM privileges.'
         ]));
     }
@@ -4330,10 +4532,33 @@
         if (matchedCommand === PING_COMMAND) { sendGM(renderList('API Listener Check', [SCRIPT_NAME + ' heard ' + PING_COMMAND + '.'])); return; }
         parsed = parseCommand(msg.content, matchedCommand);
         if (parsed.verb === 'help') { showHelp(); return; }
+        if (parsed.verb === 'roll') {
+            try { rollManagedAttack(msg, parsed.target); }
+            catch (rollError) { sendGM(renderList('Attack Failed', [rollError.message])); }
+            return;
+        }
         if (!playerIsGM(msg.playerid)) { sendGM(renderList('Command Failed', ['GM authorization is required.'])); return; }
         try {
             if (parsed.verb === 'report') { exportLifecycleReport(); return; }
             args = parseLifecycleArguments(parsed.target);
+            args.options.simple = !!parsed.simple;
+            if (parsed.simple) {
+                // Validate selection before reading notes or creating objects.
+                resolveToken(msg, null, true);
+                args.options.tokenId = null;
+                args.options.avatar = false;
+            }
+            if (parsed.verb === 'refresh') {
+                if (args.options.avatar || args.options.tokenId) { throw new Error('Refresh uses exactly one selected token, without token options.'); }
+                var selectedToken = resolveToken(msg, null, true);
+                characterId = selectedToken.get('represents');
+                if (!characterId) { throw new Error('The selected token must already represent a managed Character. Refresh never creates a Character.'); }
+                resolveHandout(trim(parsed.target), function (resolved) {
+                    if (resolved.error) { sendGM(renderList('Command Failed', [resolved.error])); }
+                    else { startLifecycle('update', characterId, resolved.handout, msg, args.options); }
+                });
+                return;
+            }
             if (parsed.verb === 'audit' || parsed.verb === 'bind' || parsed.verb === 'preview' || parsed.verb === 'update' || parsed.verb === 'adopt') {
                 characterId = args.positionals[0];
                 if (!characterId) { throw new Error('An explicit Character ID is required.'); }
@@ -4349,11 +4574,11 @@
                 startLifecycle(parsed.verb, characterId, handoutId, msg, args.options);
                 return;
             }
-            resolveHandout(args.options.tokenId || args.options.avatar ? args.positionals.join(' ') : trim(parsed.target), function (resolved) {
+            resolveHandout(!parsed.simple && (args.options.tokenId || args.options.avatar) ? args.positionals.join(' ') : trim(parsed.target), function (resolved) {
                 if (resolved.error) { sendGM(renderList('Command Failed', [resolved.error])); return; }
                 if (parsed.verb === 'validate') { validateHandout(resolved.handout); }
                 else { startLifecycle('import', null, resolved.handout, msg, args.options); }
-            });
+            }, !!parsed.simple);
         } catch (error) { sendGM(renderList('Command Failed', [error.message])); }
     }
 

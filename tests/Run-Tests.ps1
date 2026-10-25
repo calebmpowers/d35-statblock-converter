@@ -6,6 +6,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Path $PSScriptRoot -Parent
 
+& (Join-Path $PSScriptRoot 'behavior_regression_test.ps1') -NodePath $NodePath
+if (-not $?) { throw 'Campaign behavior regression tests failed.' }
+
 & (Join-Path $PSScriptRoot 'smoke_test.ps1') -WorkspaceRoot $repoRoot -NodePath $NodePath
 if (-not $?) {
     throw 'Smoke tests failed.'

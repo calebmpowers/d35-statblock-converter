@@ -36,7 +36,7 @@ The app supports:
 - one `.txt` or `.docx` file
 - a folder of `.txt` or `.docx` files
 - handout JSON output
-- inline Roll20 command output
+- legacy inline command output (for older tooling; use Handout JSON with the bundled importer)
 - diagnostic parser-model output
 
 See `Quick Start.md` for the normal workflow.
@@ -89,11 +89,13 @@ This importer needs a Roll20 game using the compatible D&D 3.5 character sheet. 
 1. In Roll20, create a handout with a memorable name, such as `Goblin Raider Import`.
 2. Open the converted `.dnd35.json` file and paste its entire contents into that handout’s **GM Notes**.
 3. Drag any token image onto the map and select that token.
-4. In chat, run `!d35import <handout name>`, replacing `<handout name>` with the handout's exact name.
+4. In chat, run `!D35 Handout Name`, replacing `Handout Name` with the handout's exact name. For example: `!D35 Tonatiuh`. Names containing spaces work without quotes.
 
-The importer creates the character, fills in the converted data, and binds the selected token to that character. It also sets the token’s health and AC bars. Open the character sheet afterward and quickly check the name, CR, AC, hit points, attacks, skills, and spells.
+The importer creates the Character, fills its sheet, copies the selected image to its portrait, binds the token, sets Bar 1 to current/maximum HP and Bar 2 to AC, applies visibility settings, saves a reusable default token, creates token actions, and verifies stored objects. No flags are required. Missing/invalid selection, multiple tokens, ambiguous handouts, invalid JSON, and unsuitable images fail before Character creation. A token already representing another Character is refused.
 
-If a creature needs correction, edit the source stat block and reconvert it. With importer 0.5.0, use `!d35import preview <character-id> <handout-id>` and then `!d35import update <character-id> <handout-id>` to update the same managed Character. See [Managed Lifecycle v1](docs/managed-lifecycle-v1.md) for ownership, adoption, token binding, and audit commands.
+Bio & Info and NPC Description contain only the canonical source reference, or stay empty when none exists. Rules remain in their sheet sections and Other. Attack actions read current modifiers at each click and omit zero/inactive terms, so later buffs still work. Keep the importer installed to use these actions.
+
+If a creature needs correction, edit the source stat block and reconvert it. Use `!d35import preview <character-id> <handout-id>` and then `!d35import update <character-id> <handout-id>` to update the same managed Character. Repeating the creation command creates a new Character; it never silently overwrites an existing one. See [Managed Lifecycle v1](docs/managed-lifecycle-v1.md) for ownership, adoption, token binding, and audit commands.
 
 ### Convert a single stat block to Roll20 handout JSON
 
@@ -186,6 +188,14 @@ Create a portable Windows release folder with:
 powershell -ExecutionPolicy Bypass -File .\tools\New-PortableRelease.ps1
 ```
 
+After staging the intended release files, verify that exact Git tree without local recovery files or saved payloads:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Test-StagedRelease.ps1
+```
+
+The staged suite exports to a new temporary directory, runs the complete release-readiness gate there, and retains the evidence without deleting existing files.
+
 To exercise the non-shipping legacy Python comparison converter, run `tests\legacy_python_smoke_test.ps1`. It is deliberately excluded from the release gate.
 
 ## Current Gaps
@@ -200,6 +210,6 @@ The original converter code and documentation are released under the [MIT Licens
 
 Created and maintained by Caleb M. Powers. Developed with implementation, testing, and documentation assistance from OpenAI Codex.
 
-## Managed Lifecycle v1 (0.5.0)
+## Managed Lifecycle v1 (0.6.0)
 
-Imports create managed Characters. Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Token images are copied to the Character portrait only with `--avatar`. Existing Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md).
+Select one token and run `!D35 Handout Name` for everyday creation. Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Creation copies the portrait automatically; later `bind` preserves it unless `--avatar` is supplied. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md) and [0.6.0 verification and limitations](Releases/0.6.0.md).

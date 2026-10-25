@@ -14,7 +14,7 @@ Roll20 does not publish a local copy of its Mod/API sandbox runtime. The project
 
 This does not run Roll20's real character sheet workers. It verifies that our importer creates the Roll20 objects and attributes we expect.
 
-Importer 0.5.0 also updates every imported fixture and checks that Character ownership, Attribute/Ability IDs, and repeating-row IDs remain stable. `tests/roll20_mock/managed-lifecycle-tests.js` runs through the same runner and adds conflict, adoption, cleanup, live-state preservation, token/default-token, async readback, locking, partial-failure, and authorization scenarios. The mock now requires asynchronous Character blob reads and rejects direct default-token writes. See [Managed Lifecycle v1](managed-lifecycle-v1.md) for commissioning limits.
+Importer 0.6.0 also updates every imported fixture and checks that Character ownership, Attribute/Ability IDs, and repeating-row IDs remain stable. `tests/roll20_mock/managed-lifecycle-tests.js` runs through the same runner and adds conflict, adoption, cleanup, live-state preservation, token/default-token, async readback, locking, partial-failure, and authorization scenarios. The mock now requires asynchronous Character blob reads and rejects direct default-token writes. See [Managed Lifecycle v1](managed-lifecycle-v1.md) for commissioning limits.
 
 Graphic creation rejects underscore-prefixed read-only properties and identity aliases, requires a valid create-time `pageid`, and exposes the parent as `_pageid` on the resulting graphic. Scratch-capture regressions check that writable, unowned saved-token settings survive creation and repeated capture.
 
@@ -49,3 +49,9 @@ The main smoke test now includes the Roll20 mock importer check after converting
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tests\smoke_test.ps1
 ```
+
+## 0.6.0 final-pass coverage
+
+`managed-lifecycle-tests.js` includes `usability-tests.js`: the one-command `!D35` flow, spaced names, safe pre-creation refusals, source-only biography migration/conflicts, deterministic roll arithmetic, later conditional toggles, and Ability ID retention. Arithmetic assertions inspect actual dispatched chat output and compare it to source expectations and unfiltered verified templates. Structural corpus assertions continue inspecting the templates behind dispatchers.
+
+Run `tools/Test-StagedRelease.ps1` after staging release files to export the exact Git index tree to an isolated temporary directory and run the complete release-readiness gate. Evidence is retained; no existing directory is deleted. See [0.6.0 verification and live limits](../Releases/0.6.0.md).
