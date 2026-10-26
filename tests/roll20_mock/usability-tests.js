@@ -13,7 +13,13 @@ function click(h, c, key) {
     const ability = h.world.getObj('ability', c.manifest.owned.abilities[key]);
     const start = h.world.chat.length;
     h.send(ability.get('action').replace('@{character_id}', c.character.id).replace(/^!d35import /, ''));
-    return h.world.chat.slice(start).filter((entry) => entry.who === 'character|' + c.character.id).map((entry) => entry.message).join('\n');
+    return h.world.chat.slice(start).filter((entry) => entry.who === 'character|' + c.character.id).map((entry) => {
+        // API-originated chat must be roll-ready without the test harness
+        // performing attribute substitution that Roll20 did not perform live.
+        assert.ok(!entry.message.includes('@{'), entry.message);
+        assert.ok(!entry.message.includes(c.character.id), entry.message);
+        return entry.message;
+    }).join('\n');
 }
 
 // Independent deterministic roll oracle: substitute each die with 1 or its
@@ -145,7 +151,7 @@ function runUsabilityTests(test, payload, verified) {
         assert.strictEqual(JSON.stringify(c.manifest.owned.abilities), ids);
     }));
 
-    test('unknown conditional formulas remain live and legacy Ability IDs survive regeneration', (h) => {
+    test('unsupported conditional formulas fail visibly and legacy Ability IDs survive regeneration', (h) => {
         const c = h.create();
         const ability = h.world.getObj('ability', c.manifest.owned.abilities.dagger);
         const originalId = ability.id;
@@ -156,12 +162,11 @@ function runUsabilityTests(test, payload, verified) {
         assert.strictEqual(c.manifest.owned.abilities.dagger, originalId);
         assert.ok(ability.get('action').startsWith('!d35import roll '));
         assert.strictEqual(h.world.findObjs({_type:'ability', characterid:c.character.id, name:'Dagger'}).length, 1);
-        set(h,c,'globalAttackBonus', '?{Situational bonus|0}');
-        assert.ok(click(h,c,'dagger').includes('[Global bonus]'));
-        set(h,c,'globalAttackBonus', '@{Other Character|situational}');
-        assert.ok(click(h,c,'dagger').includes('[Global bonus]'));
-        set(h,c,'globalAttackBonus', '@{globalAttackBonus}');
-        assert.ok(click(h,c,'dagger').includes('[Global bonus]'));
+        ['?{Situational bonus|0}', '@{Other Character|situational}', '@{globalAttackBonus}', '1d6'].forEach((formula) => {
+            set(h,c,'globalAttackBonus', formula);
+            assert.strictEqual(click(h,c,'dagger'), '');
+            assert.ok(h.world.chat.at(-1).message.includes('Cannot evaluate attack modifier'));
+        });
         set(h,c,'globalAttackBonus', 'floor(@{situational}/2)');
         set(h,c,'situational', 0);
         assert.ok(!click(h,c,'dagger').includes('[Global bonus]'));
@@ -178,6 +183,26 @@ function runUsabilityTests(test, payload, verified) {
         assert.ok(!macro.includes('[Flank]') && !macro.includes('[Higher Ground]'));
         assert.ok(macro.includes('[Rapid]'));
         assert.deepStrictEqual(values(h,c,macro,'attack',false), [2]);
+    });
+
+    test('live Ochre Jelly attack contains labeled numbers and needs no chat attribute expansion', (h) => {
+        const data = payload();
+        data.creature.name = data.creature.header.name = 'Ochre Jelly';
+        data.creature.header.alignment_size_type = 'Always neutral Large ooze';
+        data.creature.statistics.abilities_line = 'Abilities Str 15, Dex 1, Con 22, Int -, Wis 1, Cha 1';
+        data.creature.offense.base_attack_line = 'Base Atk +4; Grp +10';
+        data.creature.offense.melee_lines = [{raw:'Melee slam +5 (2d4+3 plus 1d4 acid)',fragments:[{raw:'slam +5 (2d4+3 plus 1d4 acid)'}]}];
+        data.creature.offense.ranged_lines = [];
+        const c = h.create(data);
+        const macro = click(h,c,'slam');
+        assert.ok(macro.includes('4[BAB] + 2[Strength] - 1[Size]'), macro);
+        assert.ok(macro.includes('2d4[Dmg] + 3[Strength damage]'), macro);
+        assert.deepStrictEqual(values(h,c,macro,'attack',false), [6]);
+        assert.deepStrictEqual(values(h,c,macro,'damage',false), [5]);
+        assert.deepStrictEqual(values(h,c,macro,'critdmg',false), [5]);
+        assert.ok(macro.includes('plus 1d4 acid'));
+        set(h,c,'globalAttackBonus',2);
+        assert.deepStrictEqual(values(h,c,click(h,c,'slam'),'attack',false),[8]);
     });
 }
 

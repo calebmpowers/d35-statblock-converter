@@ -1051,12 +1051,26 @@ function main() {
             path.basename(file) + ': managed update readback did not verify');
         assert.strictEqual(JSON.stringify(managed.owned), ownedBefore, path.basename(file) + ': update changed owned IDs');
         assert.strictEqual(JSON.stringify(managed.rows), rowsBefore, path.basename(file) + ': update changed row IDs');
+        Object.keys(managed.baseline.attackMacros || {}).forEach((key) => {
+            const ability = world.getObj('ability', managed.owned.abilities[key]);
+            const beforeRoll = world.chat.length;
+            world.trigger('chat:message', {type:'api', playerid:'-MOCKGM',
+                content:ability.get('action').replace('@{character_id}', managed.characterId)});
+            world.flush();
+            const rolls = world.chat.slice(beforeRoll).filter((entry) => entry.who === 'character|' + managed.characterId);
+            assert.strictEqual(rolls.length, managed.baseline.attackMacros[key].split('\n').length,
+                path.basename(file) + ': attack dispatcher did not emit the complete routine: ' + key);
+            rolls.forEach((entry) => {
+                assert.ok(!entry.message.includes('@{') && !entry.message.includes(managed.characterId),
+                    path.basename(file) + ': unresolved attribute or Character ID reached roll output: ' + entry.message);
+            });
+        });
         if (options.verbose) {
             console.log('OK: ' + path.basename(file));
         }
     });
 
-    const failures = world.chat.filter((entry) => /Import Failed|Command Failed|Validation Failed/i.test(entry.message));
+    const failures = world.chat.filter((entry) => /Import Failed|Command Failed|Validation Failed|Attack Failed/i.test(entry.message));
     assert.strictEqual(failures.length, 0, 'Importer reported failures: ' + JSON.stringify(failures));
     console.log('Roll20 mock importer tests passed for ' + files.length + ' payload(s).');
     runLifecycleTests(options.importer);

@@ -2,7 +2,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'D35 Statblock Importer';
-    var VERSION = '0.6.1';
+    var VERSION = '0.6.2';
     var COMMAND = '!d35import';
     var COMMAND_ALIASES = ['!d35import', '!d35importer', '!d35'];
     var PING_COMMAND = '!d35ping';
@@ -4445,7 +4445,7 @@
     }
 
     // Evaluate only arithmetic modifiers, never JavaScript or dice expressions.
-    // Unknown expressions remain in the roll rather than being silently dropped.
+    // Unsupported live modifiers stop the roll rather than being silently lost.
     function attackMacroSignature(macro) {
         var hash = 0, i;
         for (i = 0; i < macro.length; i += 1) { hash = ((hash * 31) + macro.charCodeAt(i)) | 0; }
@@ -4457,7 +4457,7 @@
         var unknown = false;
         text = String(text).replace(/\[[^\]]*\]/g, '').replace(/@\{([^}]+)\}/g, function (all, name) {
             // Cross-character references and selected/target references are not
-            // local attribute names. Let Roll20 resolve these unknown formulas.
+            // local attribute names. They cannot be evaluated as local numbers.
             if (name.indexOf('|') !== -1) { unknown = true; return '0'; }
             var value = getAttrByName(characterId, name);
             if (value === undefined || value === null || value === '') { return '0'; }
@@ -4512,12 +4512,30 @@
                 }
             }
             terms.push(trim(expression.slice(start)));
-            terms = terms.filter(function (term) { return term && evaluateLiveModifier(term, characterId, 0) !== 0; });
-            return terms.join(' + ') || '0';
+            terms = terms.map(function (term) {
+                if (!term) { return ''; }
+                var value = evaluateLiveModifier(term, characterId, 0);
+                if (value === 0) { return ''; }
+                if (value !== null) {
+                    // sendChat does not provide the originating Ability's
+                    // attribute-expansion context. Emit real numbers, with the
+                    // original component labels, rather than raw @{id|attr}.
+                    var labels = (term.match(/\[[^\]]*\]/g) || []).join('')
+                        .replace(/\[size\]/g, '[Size]').replace(/\[Weapon Dmg Ability\]/g, '[Strength damage]');
+                    if (term.indexOf('@{str-mod}') !== -1) { labels = labels.replace(/\[Ability\]/g, '[Strength]'); }
+                    if (term.indexOf('@{dex-mod}') !== -1) { labels = labels.replace(/\[Ability\]/g, '[Dexterity]'); }
+                    return String(value) + labels;
+                }
+                if (/@\{|%\{|\?\{/.test(term)) {
+                    throw new Error('Cannot evaluate attack modifier ' + term + '. Use a numeric value or supported local arithmetic on the sheet, then roll again.');
+                }
+                return term;
+            }).filter(Boolean);
+            return terms.join(' + ').replace(/\+\s+-/g, '- ') || '0';
         }
         return macro.replace(/\[\[([\s\S]*?)\]\]/g, function (all, expression) {
             return '[[ ' + compactExpression(expression) + ' ]]';
-        }).replace(/@\{([^}]+)\}/g, function (all, name) { return name.indexOf('|') === -1 ? '@{' + characterId + '|' + name + '}' : all; });
+        });
     }
 
     function rollManagedAttack(msg, target) {

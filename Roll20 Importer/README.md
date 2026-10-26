@@ -4,7 +4,7 @@ This folder contains the Roll20 API companion script for the local D35 converter
 
 Use `D35_Statblock_Importer.js` in Roll20's API Scripts page.
 
-Current bundled version: `0.6.1`.
+Current bundled version: `0.6.2`.
 
 Basic import workflow:
 
@@ -18,6 +18,6 @@ Creation configures the sheet, portrait, token association, unlinked HP/AC bars,
 
 The importer expects `schema_version: 1` payloads. Version 0.4 consumes the optional ordinary-lower-entry, lower-Skills, and Spell Reference fields while remaining compatible with older version 1 payloads.
 
-## Managed Lifecycle v1 (0.6.1)
+## Managed Lifecycle v1 (0.6.2)
 
-Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Creation copies the portrait automatically; later `bind` preserves it unless `--avatar` is supplied. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](../docs/managed-lifecycle-v1.md) and [verification and limitations](../Releases/0.6.1.md).
+Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Creation copies the portrait automatically; later `bind` preserves it unless `--avatar` is supplied. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](../docs/managed-lifecycle-v1.md) and [verification and limitations](../Releases/0.6.2.md).
