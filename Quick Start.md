@@ -69,6 +69,6 @@ Run the payload validator:
 powershell -ExecutionPolicy Bypass -File .\tools\Test-Roll20ImporterPayload.ps1
 ```
 
-## Managed Lifecycle v1 (0.6.0)
+## Managed Lifecycle v1 (0.6.1)
 
 For corrections, reconvert and replace the handout JSON, then use `!d35 preview <character-id> <handout-id>` followed by `!d35 update <character-id> <handout-id>`. This retains the Character and protects live HP, spent spells, manual additions, and encounter tokens. Creation copies the portrait automatically; later `bind` changes it only with `--avatar`. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md).

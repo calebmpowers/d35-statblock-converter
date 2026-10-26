@@ -2,7 +2,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'D35 Statblock Importer';
-    var VERSION = '0.6.0';
+    var VERSION = '0.6.1';
     var COMMAND = '!d35import';
     var COMMAND_ALIASES = ['!d35import', '!d35importer', '!d35'];
     var PING_COMMAND = '!d35ping';
@@ -2009,6 +2009,12 @@
         var racialAbilityParts = [];
         var otherParts = [];
         var bioParts = [];
+        var nonScores = String(stats.abilities_line || '').match(/\b(?:Str|Dex|Con|Int|Wis|Cha)\s+(?:[-\u2013\u2014]\s*)?(?=,|$)/gi) || [];
+        if (nonScores.length) {
+            otherParts.push('Ability non-scores: ' + nonScores.map(function (entry) {
+                return trim(entry).slice(0, 3) + ' \u2014';
+            }).join(', ') + '. These abilities have no score; a PC-sheet total of 10 is only a display placeholder.');
+        }
         var knownRacialAbilityNames = buildKnownRacialAbilityNameSet(creature);
         var seenClassAbilityNames = {};
         var ordinaryEntries = asArray(creature.ordinary_entries);
@@ -3825,6 +3831,31 @@
         }
     }
 
+    function attributeValueComparator(plan, snapshot, name) {
+        // Live 0.6.0 commissioning: an absent score's PC total can become 10,
+        // while its base, NPC score and both modifiers retain the non-score
+        // mapping. Only that corroborated representation is equivalent to blank.
+        // Object identity, duplicates, maxima and all numeric scores stay strict.
+        var companions = {};
+        if (/^(str|dex|con|int|wis|cha)$/.test(name) && plan.attributes[name] &&
+                plan.attributes[name].current === '') {
+            companions[name + '-base'] = '';
+            companions['npc' + name] = '';
+            companions[name + '-mod'] = 0;
+            companions['npc' + name + '-mod'] = 0;
+        }
+        var corroborated = Object.keys(companions).length && Object.keys(companions).every(function (key) {
+            var expected = plan.attributes[key];
+            var objects = snapshot.attributes[key];
+            return expected && sameValue(expected.current, companions[key]) && objects && objects.length === 1 &&
+                sameValue(objects[0].values.current, companions[key]);
+        });
+        return function (actual, expected, field) {
+            return sameValue(actual, expected, field) || (corroborated && field === 'current' &&
+                expected === '' && sameValue(actual, 10));
+        };
+    }
+
     function inspectPlan(plan, manifest, snapshot, report, phase, adoption) {
         var previous = manifest && manifest.baseline;
         var owned = manifest && manifest.owned || { attributes: {}, abilities: {} };
@@ -3862,7 +3893,7 @@
             }
             if (!expected && phase === 'readback') { return; }
             Object.keys(expected || old || {}).forEach(function (field) {
-                var compare = name === 'recalc' && field === 'current' ? sameRecalcValue : sameValue;
+                var compare = name === 'recalc' && field === 'current' ? sameRecalcValue : attributeValueComparator(plan, snapshot, name);
                 var preserve = field === 'current' && preservesCurrent(name) && !!matches.length;
                 // New live-state fields are initialized and verified on creation, preserved thereafter.
                 if (phase === 'readback') {
@@ -3871,6 +3902,11 @@
                 }
                 compareManaged(report, phase, 'attribute.' + name + '.' + field,
                     old && old[field], observed && observed[field], expected && expected[field], field, preserve, compare);
+                if (/^(str|dex|con|int|wis|cha)$/.test(name) && field === 'current' && expected &&
+                        expected[field] === '' && observed && !sameValue(observed[field], expected[field]) &&
+                        compare(observed[field], expected[field], field)) {
+                    report.checks[report.checks.length - 1].representation = 'corroborated-absent-ability-placeholder';
+                }
                 if (adoption && (!observed || (!preserve && !compare(observed[field], expected[field], field)))) {
                     reportIssue(report, 'adoption-mismatch', 'attribute.' + name + '.' + field, expected[field], observed && observed[field]);
                 }
@@ -4075,7 +4111,7 @@
             if (attr) {
                 if (preservesCurrent(name) || name === 'recalc') { delete values.current; }
                 Object.keys(values).forEach(function (field) {
-                    if (sameValue(attr.get(field), values[field], field)) { delete values[field]; }
+                    if (attributeValueComparator(plan, snapshot, name)(attr.get(field), values[field], field)) { delete values[field]; }
                 });
                 if (Object.keys(values).length) {
                     journalTouch(manifest, report, 'attribute', attr.id, name, 'set');

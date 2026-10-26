@@ -86,6 +86,7 @@ function runLifecycleTests(importer) {
     function issue(report, code) { assert.ok(report.issues.some((item) => item.code === code), JSON.stringify(report.issues)); }
 
     require('./usability-tests').runUsabilityTests(test, payload, verified);
+    require('./absent-ability-tests').runAbsentAbilityTests(test, payload, verified);
 
     ['V\u2019sesslin (Campaign Variant)', 'Yuan\u2011ti\u00a0Halfblood (Campaign Variant)'].forEach((name) =>
         test('handout name lookup normalizes both sides: ' + name, (h) => {

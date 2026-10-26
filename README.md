@@ -210,6 +210,6 @@ The original converter code and documentation are released under the [MIT Licens
 
 Created and maintained by Caleb M. Powers. Developed with implementation, testing, and documentation assistance from OpenAI Codex.
 
-## Managed Lifecycle v1 (0.6.0)
+## Managed Lifecycle v1 (0.6.1)
 
-Select one token and run `!D35 Handout Name` for everyday creation. Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Creation copies the portrait automatically; later `bind` preserves it unless `--avatar` is supplied. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md) and [0.6.0 verification and limitations](Releases/0.6.0.md).
+Select one token and run `!D35 Handout Name` for everyday creation. Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Creation copies the portrait automatically; later `bind` preserves it unless `--avatar` is supplied. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md) and [0.6.1 verification and limitations](Releases/0.6.1.md).

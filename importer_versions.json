@@ -1,15 +1,16 @@
 {
   "project": "D35 Statblock Importer",
-  "release_version": "0.6.0",
+  "release_version": "0.6.1",
   "workspace_root": ".",
   "versions": [
     {
       "id": "current_chat_version",
       "name": "D35StatblockImporter",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "source": "user_pasted_chat_script",
       "file": "D35_Statblock_Importer.js",
       "notes": [
+        "0.6.1: corroborated absent-ability PC display handling and in-place pending-import audit recovery",
         "0.6.0: one-command selected-token import, source-only biography, live compact attack actions, recovered parser fixes, and managed lifecycle regression coverage",
         "Cleaned and current importer version restored from pasted chat script",
         "Adds more robust normalization and parsing helpers",

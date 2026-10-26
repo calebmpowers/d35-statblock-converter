@@ -1,4 +1,4 @@
-# Managed Lifecycle v1 — importer 0.6.0
+# Managed Lifecycle v1 — importer 0.6.1
 
 This milestone extends the existing PowerShell → schema version 1 handout → Roll20 Mod pipeline. The parser, converter JSON schema, local app, and stat-block authoring contract are unchanged.
 
@@ -101,6 +101,12 @@ Renaming a spell, changing its level/family/usage identity, or changing a maneuv
 Adoption is conservative and performs no sheet writes. The explicit Character ID must already contain the proposed mapped static values, unique matching rows, and unique matching Abilities. Live current HP and use/readiness values may differ. Extra manual content remains unowned. Missing, different, or ambiguous mapped content refuses adoption. Adoption does not claim an existing portrait or saved default token; an explicit bind handles token ownership afterward.
 
 ## Conflict and preservation rules
+
+### Absent ability scores (0.6.1)
+
+Live 0.6.0 commissioning showed that an absent PC Intelligence total can be stored as 10 while its base and NPC scores remain blank and both modifiers remain zero. Only this corroborated blank/10 representation is accepted for absent PC ability totals. The plan must map the total/base/NPC score to blank and both modifiers to zero; each companion Attribute must exist uniquely and match. Companion identity, ownership, maxima and duplicates retain their normal checks. Numeric source scores, changed totals (such as 11) and unrelated empty Attributes remain strict. Ordinary no-change updates do not rewrite the placeholder. The NPC score and the Other non-score note carry the rules meaning; this exception never asserts a real ability score of 10.
+
+The same readback rule lets `audit` finish an existing pending 0.6.0 import without writing or recreating game objects, provided every other check passes. See [0.6.1 recovery commands](../Releases/0.6.1.md). New imports/updates retain explicit absent-score labels from the abilities line in Other, including legacy blank values. PC display behavior and any subsequent live sheet calculations still need commissioning.
 
 For static managed values, preflight compares the previous verified value, current Roll20 value, and proposed value. A current value different from the verified baseline blocks the whole ordinary operation, including when the proposed value happens to equal the manual edit. There is no force-overwrite flag or automatic conflict resolution.
 
