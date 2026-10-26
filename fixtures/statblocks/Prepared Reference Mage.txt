@@ -1,0 +1,67 @@
+Prepared Reference Mage CR 7
+human wizard 7
+LN Medium humanoid (human)
+Synthetic regression fixture
+Init +2; Senses normal; Listen +1, Spot +1
+AC 16, touch 12, flat-footed 14 (+2 Dex, +4 permanent force effect)
+hp 31 (7d4+14)
+Fort +4, Ref +4, Will +6
+Spd 30 ft.
+Melee quarterstaff +2 (1d6-1)
+Ranged light crossbow +5 (1d8/19-20)
+Space 5 ft.; Reach 5 ft.
+Base Atk +3; Grp +2
+Abilities Str 8, Dex 14, Con 14, Int 18, Wis 12, Cha 10
+SQ familiar, specialist (evocation)
+Feats Combat Casting, Scribe Scroll
+Skills Concentration +12, Knowledge (arcana) +14, Spellcraft +16
+Possessions quarterstaff, light crossbow, spell component pouch
+Spellbook 4th-dimension door, stoneskin; 3rd-dispel magic, fireball, fly; 2nd-invisibility, mirror image; 1st-magic missile, shield
+Wizard Spells Prepared (CL 7th):
+4th (1/day)-dimension door
+3rd (3/day)-dispel magic, fireball S, fireball S
+2nd (4/day)-invisibility (2), mirror image
+1st (5/day)-magic missile, shield
+0 (4/day)-detect magic
+Prohibited Schools enchantment, necromancy
+Combat Casting [General] The creature gains the feat's bonus under its stated conditions.
+Familiar The creature has the standard wizard familiar class feature.
+Last Defense (Ex) This final ordinary lower entry must end before the Spell Reference heading.
+Spell Reference
+4th-Level Spells
+Dimension Door
+Conjuration (Teleportation); 1 standard action; Long (680 ft.); caster and touched creatures; instantaneous; Will negates (object); yes
+The caster instantly transfers itself from its current location to another spot within range.
+(Player's Handbook, page 221.)
+3rd-Level Spells
+Dispel Magic
+Abjuration; 1 standard action; Medium (170 ft.); one spellcaster, creature, object, or 20-ft.-radius burst; instantaneous; none; no
+The caster can use a targeted dispel or an area dispel.
+For a targeted dispel, make a caster level check against each ongoing spell as applicable.
+(Player's Handbook, page 223.)
+Fireball S
+Evocation [Fire]; 1 standard action; Long (680 ft.); 20-ft.-radius spread; instantaneous; Reflex half; yes
+The spell deals 7d6 points of fire damage.
+(Player's Handbook, page 231.)
+Phantom Spell
+Illusion; 1 standard action; Close (45 ft.); one creature; 1 round; Will disbelief; yes
+This unmatched reference entry is retained for warning coverage.
+(Synthetic source, page 1.)
+2nd-Level Spells
+Invisibility
+Illusion (Glamer); 1 standard action; Personal or touch; creature touched; 7 minutes; Will negates (harmless); yes (harmless)
+The creature becomes invisible until the spell ends.
+(Player's Handbook, page 245.)
+Mirror Image
+Illusion (Figment); 1 standard action; Personal; caster; 7 minutes; none; no
+The spell creates 1d4+2 illusory duplicates.
+(Player's Handbook, page 254.)
+1st-Level Spells
+Magic Missile
+Evocation [Force]; 1 standard action; Medium (170 ft.); up to four creatures; instantaneous; none; yes
+The spell creates four missiles that each deal 1d4+1 points of force damage.
+(Player's Handbook, page 251.)
+Shield
+Abjuration [Force]; 1 standard action; Personal; caster; 7 minutes; none; no
+The spell creates a force shield.
+(Player's Handbook, page 278.)

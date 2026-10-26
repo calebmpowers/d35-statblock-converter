@@ -1,0 +1,20 @@
+Tight Bracket Feats CR 2
+Human fighter 3
+LN Medium humanoid (human)
+Synthetic regression fixture
+Init +0; Senses Listen +0, Spot +0
+Languages Common
+AC 16, touch 10, flat-footed 16
+hp 24 (3 HD)
+Fort +4, Ref +1, Will +1
+Spd 30 ft.
+Melee longsword +6 (1d8+3/19-20)
+Base Atk +3; Grp +6
+Atk Options Power Attack
+Abilities Str 17, Dex 10, Con 13, Int 12, Wis 10, Cha 10
+Feats Power Attack, Weapon Specialization (longsword)
+Skills Ride +6
+Possessions longsword, +1 heavy steel shield
+Heavy Steel Shield +1 This magic shield grants a +3 shield bonus to Armor Class.
+Power Attack[General] The fighter may exchange melee attack bonus for melee damage.
+Weapon Specialization (longsword)[General] The fighter gains a +2 bonus on longsword damage rolls.

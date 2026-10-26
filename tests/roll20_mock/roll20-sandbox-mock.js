@@ -10,6 +10,12 @@ class Roll20Object {
         this._attrs._type = type;
         this._attrs.type = type;
 
+        if (type === 'graphic') {
+            this._attrs._pageid = this._attrs.pageid;
+            this._attrs._subtype = 'token';
+            delete this._attrs.pageid;
+        }
+
         if (this._attrs.characterid && !this._attrs._characterid) {
             this._attrs._characterid = this._attrs.characterid;
         }
@@ -20,14 +26,26 @@ class Roll20Object {
 
     get(prop, callback) {
         const value = this._attrs[prop];
+        const blob = (this._attrs._type === 'character' && ['bio', 'gmnotes', '_defaulttoken'].includes(prop)) ||
+            (this._attrs._type === 'handout' && ['notes', 'gmnotes'].includes(prop));
+        if (blob && typeof callback !== 'function') {
+            throw new Error('Roll20 blob reads require a callback: ' + prop);
+        }
         if (typeof callback === 'function') {
-            callback(value === undefined ? '' : value);
+            if (!this._world.suspendBlobs) {
+                this._world.setTimeout(() => callback(value === undefined ? '' : value), 1);
+            }
             return undefined;
         }
         return value === undefined ? '' : value;
     }
 
     set(prop, value) {
+        const changes = typeof prop === 'string' ? { [prop]: value } : prop || {};
+        if (this._attrs._type === 'character' && ['defaulttoken', '_defaulttoken'].some((key) => key in changes)) {
+            throw new Error('The saved default token is read-only; use setDefaultTokenForCharacter.');
+        }
+        if (this._world.hooks.beforeSet) { this._world.hooks.beforeSet(this, changes); }
         if (typeof prop === 'string') {
             this._attrs[prop] = value;
         } else {
@@ -39,14 +57,22 @@ class Roll20Object {
         if (this._attrs._characterid && !this._attrs.characterid) {
             this._attrs.characterid = this._attrs._characterid;
         }
+        if (this._world.hooks.afterSet) { this._world.hooks.afterSet(this, changes); }
         return this;
     }
 
     setWithWorker(prop, value) {
-        return this.set(prop, value);
+        if (this._attrs._type !== 'attribute' || typeof prop !== 'object') {
+            throw new Error('setWithWorker requires an Attribute and an object argument.');
+        }
+        const previous = Object.assign({}, this._attrs);
+        this.set(prop);
+        this._world.runSheetWorkers(this, prop, previous);
+        return this;
     }
 
     remove() {
+        if (this._world.hooks.beforeRemove && this._world.hooks.beforeRemove(this) === false) { return; }
         this._world.remove(this);
     }
 
@@ -61,6 +87,10 @@ function createRoll20Mock() {
     const handlers = {};
     const chat = [];
     const logs = [];
+    const timers = new Map();
+    let timerId = 0;
+    let now = 0;
+    const workerCallbacks = [];
 
     function makeId() {
         return '-MOCK' + String(nextId++).padStart(8, '0');
@@ -101,11 +131,51 @@ function createRoll20Mock() {
         handlers,
         chat,
         logs,
+        state: {},
+        hooks: {},
+        suspendBlobs: false,
+        defaultCapture: 'normal',
+        workerWrites: [],
+        emulateRecalc: false,
+        suspendWorkers: false,
+        workerDelay: 1,
+
+        setTimeout(callback, delay) {
+            const id = ++timerId;
+            timers.set(id, { callback, at: now + (delay || 0) });
+            return id;
+        },
+
+        clearTimeout(id) { timers.delete(id); },
+
+        flush() {
+            let steps = 0;
+            while (timers.size) {
+                if (++steps > 10000) { throw new Error('Mock callback queue did not settle.'); }
+                const [id, timer] = Array.from(timers.entries()).sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+                timers.delete(id);
+                now = timer.at;
+                timer.callback();
+            }
+        },
 
         createObj(type, attrs) {
             const normalized = normalizeType(type);
+            if (normalized === 'graphic') {
+                const readOnly = Object.keys(attrs || {}).find((key) => key.startsWith('_') ||
+                    ['id', 'type', 'subtype', 'cardid'].includes(key));
+                if (readOnly) { throw new Error('Read-only graphic create property: ' + readOnly); }
+                if (!attrs || typeof attrs.pageid !== 'string' || !world.getObj('page', attrs.pageid)) {
+                    throw new Error('Graphic creation requires a valid pageid.');
+                }
+            }
+            if (['character', 'handout'].includes(normalized) && ['bio', 'notes', 'gmnotes', '_defaulttoken', 'defaulttoken'].some((key) => key in (attrs || {}))) {
+                throw new Error('Roll20 blob fields must be set after object creation.');
+            }
+            if (world.hooks.beforeCreate) { world.hooks.beforeCreate(normalized, attrs); }
             const obj = new Roll20Object(world, normalized, makeId(), attrs || {});
             objects.push(obj);
+            if (world.hooks.afterCreate) { world.hooks.afterCreate(obj); }
             (handlers['add:' + normalized] || []).forEach((handler) => handler(obj));
             return obj;
         },
@@ -156,8 +226,8 @@ function createRoll20Mock() {
             logs.push(message);
         },
 
-        playerIsGM() {
-            return true;
+        playerIsGM(id) {
+            return id === '-MOCKGM';
         },
 
         randomInteger(max) {
@@ -176,13 +246,34 @@ function createRoll20Mock() {
         },
 
         onSheetWorkerCompleted(callback) {
-            if (typeof callback === 'function') {
-                callback();
-            }
+            if (typeof callback === 'function') { workerCallbacks.push(callback); }
+        },
+
+        runSheetWorkers(attr, changes, previous) {
+            world.workerWrites.push({ id: attr.id, changes: Object.assign({}, changes), previous: previous.current });
+            const callbacks = workerCallbacks.splice(0);
+            if (world.suspendWorkers) { return; }
+            world.setTimeout(() => {
+                // Only model consumption of the control, not real sheet calculations.
+                if (world.emulateRecalc && attr.get('name') === 'recalc' &&
+                        String(changes.current) === '1' && String(previous.current) !== '1') {
+                    attr._attrs.current = '0';
+                }
+                if (world.hooks.sheetWorker) { world.hooks.sheetWorker(attr, changes); }
+                callbacks.forEach((callback) => callback());
+            }, world.workerDelay);
         },
 
         setDefaultTokenForCharacter(character, token) {
-            character.set('defaulttoken', JSON.stringify(token.toJSON()));
+            if (world.defaultCapture === 'throw') { throw new Error('Injected capture failure'); }
+            if (world.defaultCapture === 'missing') { return; }
+            const data = token.toJSON();
+            // Saved default-token blobs omit these flags when visibility is disabled.
+            ['showname', 'showplayers_name', 'showplayers_bar1', 'showplayers_bar2'].forEach((field) => {
+                if (data[field] === false) { delete data[field]; }
+            });
+            if (world.defaultCapture === 'incorrect') { data.represents = '-WRONG'; }
+            character._attrs._defaulttoken = JSON.stringify(data);
         },
 
         remove(obj) {
@@ -194,7 +285,9 @@ function createRoll20Mock() {
 
         globals() {
             return {
-                state: {},
+                state: world.state,
+                setTimeout: world.setTimeout,
+                clearTimeout: world.clearTimeout,
                 createObj: world.createObj,
                 getObj: world.getObj,
                 findObjs: world.findObjs,
@@ -213,6 +306,7 @@ function createRoll20Mock() {
         }
     };
 
+    objects.push(new Roll20Object(world, 'page', '-MOCKPAGE', { name: 'Mock tabletop' }));
     return world;
 }
 

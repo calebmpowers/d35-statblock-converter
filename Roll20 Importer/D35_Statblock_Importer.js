@@ -2,7 +2,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'D35 Statblock Importer';
-    var VERSION = '0.3.0';
+    var VERSION = '0.6.2';
     var COMMAND = '!d35import';
     var COMMAND_ALIASES = ['!d35import', '!d35importer', '!d35'];
     var PING_COMMAND = '!d35ping';
@@ -276,6 +276,9 @@
         if (value === null || value === undefined || value === '') {
             return [];
         }
+        if (!Array.isArray(value) && typeof value === 'object' && Object.keys(value).length === 0) {
+            return [];
+        }
         return Array.isArray(value) ? value : [value];
     }
 
@@ -405,7 +408,7 @@
     }
 
     function normalizeNameTarget(value) {
-        return trim(normalizeText(value));
+        return trim(normalizeText(value)).replace(/[\u2010-\u2015\u2212]/g, '-').replace(/\s+/g, ' ');
     }
 
     function commandBoundaryMatches(content, command) {
@@ -433,28 +436,28 @@
 
     function parseCommand(content, matchedCommand) {
         var body = trim(String(content || '').slice(matchedCommand.length));
-        if (!body) {
+        if (!body || body === '--help' || body === '-h') {
             return { verb: 'help', target: '' };
         }
 
         var verbMatch = body.match(/^(\w+)(?:\s+(.+))?$/);
         if (!verbMatch) {
-            return { verb: 'import', target: body };
+            return { verb: 'import', target: body, simple: true };
         }
 
         var verb = verbMatch[1].toLowerCase();
         var target = trim(verbMatch[2] || '');
-        if (verb === 'help' || verb === 'validate' || verb === 'import' || verb === 'bind') {
+        if (verb === 'help' || verb === 'validate' || verb === 'create' || verb === 'import' || verb === 'bind' || verb === 'preview' || verb === 'update' || verb === 'adopt' || verb === 'audit' || verb === 'report' || verb === 'roll' || verb === 'refresh') {
             return { verb: verb, target: target };
         }
-        return { verb: 'import', target: body };
+        return { verb: 'import', target: body, simple: true };
     }
 
     function describeHandout(handout) {
         return '"' + String(handout && handout.get ? handout.get('name') : '') + '" (' + String(handout && handout.id ? handout.id : '') + ')';
     }
 
-    function resolveHandout(target, callback) {
+    function resolveHandout(target, callback, strict) {
         var normalized = normalizeNameTarget(target);
         if (!normalized) {
             callback({ handout: null, error: 'Handout name or id is required.', info: null });
@@ -467,7 +470,12 @@
             return;
         }
 
-        var matches = findObjs({ _type: 'handout', name: normalized });
+        var matches = findObjs({ _type: 'handout', name: trim(target) });
+        if (strict || !matches.length) {
+            matches = findObjs({ _type: 'handout' }).filter(function (handout) {
+                return normalizeNameTarget(handout.get('name')) === normalized;
+            });
+        }
         if (!matches.length) {
             callback({ handout: null, error: 'No handout found with the exact name "' + normalized + '".', info: null });
             return;
@@ -477,6 +485,10 @@
             return;
         }
 
+        if (strict) {
+            callback({ handout: null, error: 'Multiple handouts match. Use a unique handout name or its ID.', info: null });
+            return;
+        }
         chooseImportHandout(matches, function (validMatches) {
             if (validMatches.length === 1) {
                 callback({
@@ -796,12 +808,18 @@
     function splitBioAndMechanicalText(text) {
         var bioParts = [];
         var mechanicalParts = [];
+        var otherParts = [];
         String(text || '').split(/\n\s*\n/).forEach(function (paragraph) {
             var cleaned = trim(paragraph);
             if (!cleaned) {
                 return;
             }
-            if (/^[A-Z][^.()]*\((Ex|Sp|Su)\)/.test(cleaned) || /^Skills\b/i.test(cleaned)) {
+            if (/^B\s+.*bonus feat\.?$/i.test(cleaned)) {
+                return;
+            }
+            if (/^Affiliation\b/i.test(cleaned)) {
+                otherParts.push(cleaned);
+            } else if (/^[A-Z][^.()]*\((Ex|Sp|Su)\)/.test(cleaned) || /^(?:Skills|Spells)\b/i.test(cleaned)) {
                 mechanicalParts.push(cleaned);
             } else {
                 bioParts.push(cleaned);
@@ -809,7 +827,8 @@
         });
         return {
             bio: bioParts.join('\n\n'),
-            mechanical: mechanicalParts.join('\n\n')
+            mechanical: mechanicalParts.join('\n\n'),
+            other: otherParts.join('\n\n')
         };
     }
 
@@ -860,7 +879,7 @@
         }
     }
 
-    function extractSituationalSkillNotes(text) {
+    function extractSituationalSkillNotes(text, skillDetails) {
         var notes = {};
         String(text || '').split(/\n\s*\n/).forEach(function (paragraph) {
             var cleaned = trim(paragraph);
@@ -881,6 +900,25 @@
                 }
                 appendUniqueNote(notes, descriptor, '(' + (bonus >= 0 ? '+' : '') + bonus + ' ' + condition + ')');
             }
+        });
+        asArray(skillDetails).forEach(function (detail) {
+            var descriptor = parseSkillDescriptor(detail && detail.skill || '');
+            var condition = normalizeSituationalSkillCondition(detail && detail.condition || '');
+            var modifierText = asArray(detail && detail.modifiers).map(function (modifier) {
+                var bonus = safeNumber(modifier && modifier.bonus);
+                var source = trim(modifier && modifier.source || '');
+                var reason = trim(modifier && modifier.reason || '');
+                if (bonus === null) {
+                    return '';
+                }
+                return (bonus >= 0 ? '+' : '') + bonus +
+                    (source ? ' from ' + source : '') +
+                    (reason ? ' for ' + reason : '');
+            }).filter(Boolean).join(', ');
+            if (!descriptor || !condition || !modifierText) {
+                return;
+            }
+            appendUniqueNote(notes, descriptor, '(' + modifierText + ' ' + condition + ')');
         });
         return notes;
     }
@@ -1109,6 +1147,20 @@
             '{{notes=' + escapeMacroText(notes.join(' ')) + ' }}';
     }
 
+    function buildReferenceSpellMacro(characterName, sectionEntry) {
+        var spell = sectionEntry.spell || {};
+        var reference = spell.reference || {};
+        var notes = [
+            trim(reference.compact_rules || ''),
+            trim(reference.body || '')
+        ].filter(Boolean).join(' ');
+        return '&{template:DnD35StdRoll} ' +
+            '{{spellflag=true}} ' +
+            '{{name=' + escapeMacroText(characterName) + ' }} ' +
+            '{{subtags=casts ' + escapeMacroText(spell.name || reference.name || 'Spell') + '.}} ' +
+            '{{notes=' + escapeMacroText(notes || reference.raw || spell.raw || '') + ' }}';
+    }
+
     function rewriteSpellConcentrationSection(macro) {
         var compcheckMatch = macro.match(/\{\{compcheck=([\s\S]*?)\}\}/i);
         var queryMatch;
@@ -1130,6 +1182,10 @@
         var macro = normalizeText(spell.macro_text || '');
         var casterLevel = parseCasterLevel(sectionEntry.casterLevel);
         var dc = extractSpellDc(spell);
+
+        if (spell.reference && (spell.reference.compact_rules || spell.reference.body || spell.reference.raw)) {
+            return buildReferenceSpellMacro('@{character_name}', sectionEntry);
+        }
 
         if (!macro) {
             return buildFallbackSpellMacro('@{character_name}', sectionEntry);
@@ -1167,7 +1223,7 @@
             typeLine = ancestry;
             ancestry = '';
         } else if (looksLikeTypeLine(ancestry) && looksLikeSourceReference(typeLine)) {
-            sourceReference = typeLine;
+            sourceReference = sourceReference || typeLine;
             typeLine = ancestry;
             ancestry = '';
         }
@@ -1183,7 +1239,8 @@
             sizeMod: alignmentInfo.sizeMod || 0,
             typeText: alignmentInfo.typeText,
             gender: genderDescriptor.gender,
-            descriptor: genderDescriptor.descriptor
+            descriptor: genderDescriptor.descriptor,
+            classes: asArray(header.classes)
         };
     }
 
@@ -1234,13 +1291,22 @@
     function parseIdentity(normalizedHeader, defaultRaceName) {
         var descriptor = trim(normalizedHeader.descriptor || '');
         var parsed = parseClassLevels(descriptor);
+        var explicitClasses = asArray(normalizedHeader.classes).map(function (entry) {
+            return {
+                name: toDisplayCase(entry && entry.name || ''),
+                level: safeNumber(entry && entry.level) || 0
+            };
+        }).filter(function (entry) {
+            return entry.name && entry.level > 0;
+        });
         var raceText = parsed.raceText || descriptor || trim(defaultRaceName || '') || normalizedHeader.typeText || '';
-        if (parsed.classes.length) {
+        var classes = explicitClasses.length ? explicitClasses : parsed.classes;
+        if (classes.length) {
             raceText = stripAgeQualifiers(raceText);
         }
         return {
             race: toDisplayCase(raceText || trim(defaultRaceName || '') || normalizedHeader.typeText || ''),
-            classes: parsed.classes
+            classes: classes
         };
     }
 
@@ -1683,12 +1749,28 @@
     }
 
     function splitAbilitySummaryText(value) {
-        return String(value || '')
-            .split(/\s*[;,]\s*/)
-            .map(function (part) {
-                return trim(part);
-            })
-            .filter(Boolean);
+        var items = [];
+        var current = '';
+        var depth = 0;
+        String(value || '').split('').forEach(function (ch) {
+            if (ch === '(') {
+                depth += 1;
+            } else if (ch === ')' && depth > 0) {
+                depth -= 1;
+            }
+            if ((ch === ',' || ch === ';') && depth === 0) {
+                if (trim(current)) {
+                    items.push(trim(current));
+                }
+                current = '';
+            } else {
+                current += ch;
+            }
+        });
+        if (trim(current)) {
+            items.push(trim(current));
+        }
+        return items;
     }
 
     function buildKnownRacialAbilityNameSet(creature) {
@@ -1699,7 +1781,193 @@
                 known[key] = true;
             }
         });
+        asArray(creature.ordinary_entries).forEach(function (entry) {
+            var key = normalizeAbilitySummaryName(entry && (entry.name || entry.raw));
+            if (key) {
+                known[key] = true;
+            }
+        });
+        if (known['dwarf traits']) {
+            [
+                'stability',
+                'stonecunning',
+                '+1 attack against orcs and goblinoids',
+                '+4 dodge against giants'
+            ].forEach(function (key) {
+                known[key] = true;
+            });
+        }
         return known;
+    }
+
+    var CLASS_FEATURE_NAMES_BY_CLASS = {
+        barbarian: {
+            'damage reduction': true,
+            'fast movement': true,
+            'greater rage': true,
+            'improved uncanny dodge': true,
+            'indomitable will': true,
+            'mighty rage': true,
+            rage: true,
+            'tireless rage': true,
+            'trap sense': true,
+            'uncanny dodge': true
+        },
+        cleric: {
+            aura: true,
+            'cleric spellcasting': true,
+            'death touch': true,
+            'destruction domain': true,
+            'fire domain': true,
+            'good domain': true,
+            'healing domain': true,
+            'protective ward': true,
+            'rebuke undead': true,
+            'spontaneous casting': true,
+            'turn undead': true
+        },
+        druid: {
+            'animal companion': true,
+            'nature sense': true,
+            'resist nature s lure': true,
+            spells: true,
+            'spontaneous casting': true,
+            'trackless step': true,
+            'wild empathy': true,
+            'wild shape': true,
+            'woodland stride': true
+        },
+        'favored soul': {
+            'favored soul spellcasting': true
+        },
+        'dread pirate': {
+            'fearsome reputation': true,
+            seamanship: true,
+            'sneak attack': true
+        },
+        monk: {
+            evasion: true,
+            'flurry of blows': true
+        },
+        ranger: {
+            'animal companion': true,
+            'combat style': true,
+            'favored enemy': true,
+            'improved combat style': true,
+            'ranger spellcasting': true,
+            'wild empathy': true
+        },
+        rogue: {
+            evasion: true,
+            'improved uncanny dodge': true,
+            'sneak attack': true,
+            'trap sense': true,
+            trapfinding: true,
+            'uncanny dodge': true
+        },
+        sorcerer: {
+            familiar: true,
+            'sorcerer spellcasting': true
+        },
+        swashbuckler: {
+            'dodge bonus': true,
+            grace: true,
+            'insightful strike': true,
+            'weapon finesse': true
+        },
+        tempest: {
+            ambidexterity: true,
+            'tempest defense': true
+        },
+        wizard: {
+            familiar: true,
+            'summon familiar': true,
+            'wizard spellcasting': true
+        }
+    };
+
+    function isClassFeatureEntry(entry, identity) {
+        var entryKey = normalizeAbilitySummaryName(entry && entry.name);
+        if (!entryKey) {
+            return false;
+        }
+        return asArray(identity && identity.classes).some(function (classEntry) {
+            var classKey = normalizeLookupText(classEntry && classEntry.name);
+            if (classKey === 'cleric' && /\bdomain$/.test(entryKey)) {
+                return true;
+            }
+            return CLASS_FEATURE_NAMES_BY_CLASS[classKey] &&
+                CLASS_FEATURE_NAMES_BY_CLASS[classKey][entryKey] === true;
+        });
+    }
+
+    var FEAT_CATEGORY_NAMES = {
+        general: true,
+        fighter: true,
+        metamagic: true,
+        'item creation': true,
+        epic: true,
+        psionic: true,
+        racial: true,
+        tactical: true,
+        divine: true,
+        wild: true,
+        vile: true,
+        exalted: true,
+        reserve: true,
+        ambush: true,
+        luck: true,
+        heritage: true,
+        draconic: true,
+        incarnum: true,
+        style: true,
+        ceremony: true
+    };
+
+    function isListedFeatEntry(entry, stats) {
+        var entryKey = normalizeFeatMatchKey(entry && entry.name);
+        return entryKey && asArray(stats && stats.feats).some(function (featName) {
+            return normalizeFeatMatchKey(featName) === entryKey;
+        });
+    }
+
+    function normalizeEquipmentMatchParts(value) {
+        var key = normalizeLookupText(value);
+        var enhancementMatch = key.match(/(?:^|\s)\+(\d+)(?:\s|$)/);
+        return {
+            base: trim(key
+                .replace(/(?:^|\s)\+\d+(?=\s|$)/g, ' ')
+                .replace(/\b(?:masterwork|mwk)\b/g, ' ')
+                .replace(/\s+/g, ' ')),
+            enhancement: enhancementMatch ? enhancementMatch[1] : ''
+        };
+    }
+
+    function isEquipmentReferenceEntry(entry, offense, stats) {
+        var entryKey = normalizeLookupText(entry && entry.name);
+        var entryParts = normalizeEquipmentMatchParts(entry && entry.name);
+        var itemNames = []
+            .concat(asArray(stats && stats.possessions))
+            .concat(splitTopLevel(stripPrefix(offense && offense.combat_gear_line || '', 'Combat Gear\\s+')));
+        if (!entryKey) {
+            return false;
+        }
+        return itemNames.some(function (itemName) {
+            var itemKey = normalizeLookupText(itemName);
+            var itemParts = normalizeEquipmentMatchParts(itemName);
+            var enhancementCompatible = !entryParts.enhancement || !itemParts.enhancement ||
+                entryParts.enhancement === itemParts.enhancement;
+            var normalizedBaseMatch = entryParts.base && itemParts.base && enhancementCompatible && (
+                itemParts.base === entryParts.base ||
+                (' ' + itemParts.base + ' ').indexOf(' ' + entryParts.base + ' ') !== -1 ||
+                itemParts.base.slice(-(entryParts.base.length + 1)) === ' ' + entryParts.base
+            );
+            return normalizedBaseMatch || itemKey === entryKey ||
+                (' ' + itemKey + ' ').indexOf(' ' + entryKey + ' ') !== -1 ||
+                (itemKey.length > entryKey.length &&
+                    itemKey.slice(-(entryKey.length + 1)) === ' ' + entryKey) ||
+                (/^masterwork\b/.test(entryKey) && /\bmasterwork\b/.test(itemKey));
+        });
     }
 
     function shouldKeepHpInlineNoteInClassAbilities(note) {
@@ -1709,7 +1977,15 @@
     function filterDuplicateAbilitySummaries(value, knownAbilityNames, seenSummaryNames) {
         return splitAbilitySummaryText(value).filter(function (part) {
             var key = normalizeAbilitySummaryName(part);
-            if (key && knownAbilityNames[key]) {
+            var duplicatesFullEntry = key && Object.keys(knownAbilityNames).some(function (knownKey) {
+                return key === knownKey || key.indexOf(knownKey + ' ') === 0 ||
+                    (key.length > knownKey.length && key.slice(-(knownKey.length + 1)) === ' ' + knownKey);
+            });
+            if (!duplicatesFullEntry && knownAbilityNames['favored enemy'] &&
+                    /^(?:aberrations?|animals?|constructs?|dragons?|elementals?|fey|giants?|humanoids?|magical beasts?|monstrous humanoids?|oozes?|outsiders?|plants?|undead|vermin)\s+[+\-]\d+$/.test(key)) {
+                duplicatesFullEntry = true;
+            }
+            if (duplicatesFullEntry) {
                 return false;
             }
             if (key && seenSummaryNames[key]) {
@@ -1724,7 +2000,7 @@
         }).join(', ');
     }
 
-    function buildTextBundles(creature, normalizedHeader) {
+    function buildTextBundles(creature, normalizedHeader, identity) {
         var defense = creature.defense || {};
         var offense = creature.offense || {};
         var stats = creature.statistics || {};
@@ -1733,14 +2009,42 @@
         var racialAbilityParts = [];
         var otherParts = [];
         var bioParts = [];
+        var nonScores = String(stats.abilities_line || '').match(/\b(?:Str|Dex|Con|Int|Wis|Cha)\s+(?:[-\u2013\u2014]\s*)?(?=,|$)/gi) || [];
+        if (nonScores.length) {
+            otherParts.push('Ability non-scores: ' + nonScores.map(function (entry) {
+                return trim(entry).slice(0, 3) + ' \u2014';
+            }).join(', ') + '. These abilities have no score; a PC-sheet total of 10 is only a display placeholder.');
+        }
         var knownRacialAbilityNames = buildKnownRacialAbilityNameSet(creature);
         var seenClassAbilityNames = {};
+        var ordinaryEntries = asArray(creature.ordinary_entries);
 
         function pushClassAbilitySummary(value) {
             var filtered = filterDuplicateAbilitySummaries(value, knownRacialAbilityNames, seenClassAbilityNames);
             if (filtered) {
                 classAbilityParts.push(filtered);
             }
+        }
+
+        function filterEquipmentAbilitySummaries(value) {
+            return splitAbilitySummaryText(value).filter(function (part) {
+                var partKey = normalizeAbilitySummaryName(part);
+                return !ordinaryEntries.some(function (entry) {
+                    var entryKey;
+                    var entryTextKey;
+                    if (!isEquipmentReferenceEntry(entry, offense, stats)) {
+                        return false;
+                    }
+                    entryKey = normalizeAbilitySummaryName(entry && entry.name);
+                    entryTextKey = normalizeLookupText([
+                        entry && entry.name,
+                        entry && entry.body,
+                        entry && entry.raw
+                    ].filter(Boolean).join(' '));
+                    return (entryKey && (' ' + partKey + ' ').indexOf(' ' + entryKey + ' ') !== -1) ||
+                        (partKey && (' ' + entryTextKey + ' ').indexOf(' ' + partKey + ' ') !== -1);
+                });
+            }).join(', ');
         }
 
         if (stats.sq_line) {
@@ -1754,17 +2058,74 @@
                 pushClassAbilitySummary(note);
             }
         });
-        asArray(creature.special_abilities).forEach(function (ability) {
-            if (ability && ability.raw) {
-                racialAbilityParts.push(ability.raw);
-            }
-        });
+        if (ordinaryEntries.length) {
+            ordinaryEntries.forEach(function (entry) {
+                if (!entry || !entry.raw) {
+                    return;
+                }
+                if (isListedFeatEntry(entry, stats)) {
+                    return;
+                }
+                if (entry.type_style === 'bracketed') {
+                    if (!FEAT_CATEGORY_NAMES[normalizeLookupText(entry.type)]) {
+                        otherParts.push(entry.raw);
+                    }
+                    return;
+                }
+                if (/\baffiliation$/i.test(trim(entry.name || ''))) {
+                    otherParts.push(entry.raw);
+                    return;
+                }
+                if (/^age\b/i.test(trim(entry.name || ''))) {
+                    otherParts.push(entry.raw);
+                    return;
+                }
+                if (normalizeLookupText(entry.name) === 'skills') {
+                    otherParts.push(entry.raw);
+                    return;
+                }
+                if (isClassFeatureEntry(entry, identity)) {
+                    classAbilityParts.push(entry.raw);
+                    return;
+                }
+                if (isEquipmentReferenceEntry(entry, offense, stats)) {
+                    otherParts.push(entry.raw);
+                    return;
+                }
+                racialAbilityParts.push(entry.raw);
+            });
+        } else {
+            asArray(creature.special_abilities).forEach(function (ability) {
+                if (ability && ability.raw) {
+                    racialAbilityParts.push(ability.raw);
+                }
+            });
+        }
         if (extra.mechanical) {
             racialAbilityParts.push(extra.mechanical);
         }
+        if (extra.other) {
+            String(extra.other).split(/\n\s*\n/).forEach(function (paragraph) {
+                var duplicatesFullAffiliation = /^Affiliation\b/i.test(paragraph) &&
+                    ordinaryEntries.some(function (entry) {
+                        return /\baffiliation$/i.test(trim(entry && entry.name || ''));
+                    });
+                if (!duplicatesFullAffiliation) {
+                    otherParts.push(paragraph);
+                }
+            });
+        }
 
         asArray(creature.header && creature.header.aura_lines).forEach(function (line) {
-            racialAbilityParts.push(stripPrefix(line, 'Aura\\s+'));
+            var auraEntry = {
+                name: 'Aura',
+                raw: line
+            };
+            if (isClassFeatureEntry(auraEntry, identity)) {
+                classAbilityParts.push(line);
+            } else {
+                racialAbilityParts.push(stripPrefix(line, 'Aura\\s+'));
+            }
         });
         if (creature.header && creature.header.languages_line) {
             pushClassAbilitySummary(extractLanguageHeaderExtras(creature.header.languages_line));
@@ -1773,7 +2134,9 @@
             pushClassAbilitySummary(stripPrefix(offense.special_actions_line, 'Special Actions?\\s+'));
         }
         if (offense.attack_options_line) {
-            pushClassAbilitySummary(stripPrefix(offense.attack_options_line, 'Atk Options\\s+'));
+            pushClassAbilitySummary(filterEquipmentAbilitySummaries(
+                stripPrefix(offense.attack_options_line, 'Atk Options\\s+')
+            ));
         }
 
         if (defense.immune_line) {
@@ -1794,12 +2157,31 @@
         asArray(offense.other_lines).forEach(function (line) {
             otherParts.push(line);
         });
+        if (creature.lower_skills_entry && creature.lower_skills_entry.raw) {
+            otherParts.push(creature.lower_skills_entry.raw);
+        }
+        if (creature.spell_reference && asArray(creature.spell_reference.levels).length) {
+            var spellReferenceParts = [creature.spell_reference.heading || 'Spell Reference'];
+            asArray(creature.spell_reference.levels).forEach(function (level) {
+                spellReferenceParts.push(level.label || (String(level.level) + '-Level Spells'));
+                asArray(level.spells).forEach(function (spell) {
+                    spellReferenceParts.push(spell.raw || [
+                        spell.name,
+                        spell.compact_rules,
+                        spell.body
+                    ].filter(Boolean).join('\n'));
+                });
+            });
+            otherParts.push(spellReferenceParts.join('\n\n'));
+        }
 
         if (normalizedHeader.sourceReference) {
-            bioParts.push('Source: ' + normalizedHeader.sourceReference);
+            bioParts.push('Source: ' + normalizedHeader.sourceReference.replace(/^Source:\s*/i, ''));
         }
         if (extra.bio) {
-            bioParts.push(extra.bio);
+            // Legacy/unclassified notes may contain gameplay rules. Preserve them
+            // in Other; Bio and NPC Description are exclusively source references.
+            otherParts.push(extra.bio);
         }
 
         return {
@@ -1820,6 +2202,7 @@
             displayName: '',
             attackBonuses: [],
             damage: '',
+            attackDamages: [],
             critMin: 20,
             critMultiplier: 2,
             notes: [],
@@ -1832,7 +2215,9 @@
             result.count = safeNumber(leadingCount[1]) || 1;
         }
 
-        var match = text.match(/^(.*?)\s+([+-]\d+(?:\/[+-]\d+)*)\b(.*)$/);
+        // Match the bonus before damage, not the Strength rating in a bow name.
+        var match = text.match(/^(.*?)\s+([+-]\d+(?:\/[+-]\d+)*)\s*((?:(?:each|melee|ranged|touch)\s+)*\(.*)$/) ||
+            text.match(/^(.*?)\s+([+-]\d+(?:\/[+-]\d+)*)\b(.*)$/);
         if (!match) {
             result.displayName = toDisplayCase(trim(text));
             result.notes.push(text);
@@ -1863,7 +2248,18 @@
         }
         var parenMatch = trailing.match(/\(([^)]+)\)/);
         if (parenMatch) {
-            parseDamageText(parenMatch[1], result);
+            var routineDamageParts = splitTopLevel(parenMatch[1]);
+            var expectedRoutineAttacks = Math.max(result.count || 1, result.attackBonuses.length || 1);
+            var routineDamages = routineDamageParts.map(function (part) {
+                var damageMatch = normalizeText(part).match(/^(\d+d\d+(?:[+-]\d+)?)/i);
+                return damageMatch ? damageMatch[1] : '';
+            }).filter(Boolean);
+            if (routineDamageParts.length > 1 && routineDamages.length === expectedRoutineAttacks) {
+                result.attackDamages = routineDamages;
+                parseDamageText(routineDamageParts[0], result);
+            } else {
+                parseDamageText(parenMatch[1], result);
+            }
         } else if (trailing) {
             result.notes.push(trailing);
         }
@@ -1907,15 +2303,46 @@
     }
 
     function dedupeWeaponNames(weapons, feats, offense) {
+        // A weapon is not a separate weapon merely because an alternative
+        // routine uses it at a lower bonus. Keep the strongest standalone
+        // profile; the original routines are retained separately below.
+        var unique = [];
+        var profiles = {};
+        weapons.forEach(function (weapon) {
+            var natural = getNaturalWeaponRoutineKey(weapon);
+            var key = natural || [weapon.attackType, normalizeLookupText(weapon.displayName),
+                weapon.critMin, weapon.critMultiplier, normalizeLookupText(weapon.damageNotes)].join('|');
+            // Rapid Shot is a deliberate, distinct mode rather than a duplicate.
+            if (isRapidShotVariant(weapon, feats, offense)) { key += '|rapid'; }
+            var index = profiles[key];
+            if (index === undefined) { profiles[key] = unique.length; unique.push(weapon); }
+            else {
+                var previous = unique[index];
+                var first = weapon.attackBonuses[0];
+                var best = previous.attackBonuses[0];
+                if (first > best || (first === best && weapon.count > previous.count)) { unique[index] = weapon; }
+            }
+        });
+        weapons = unique;
         var counts = {};
+        var naturalRoutineCounts = {};
         weapons.forEach(function (weapon) {
             var baseName = weapon.displayName;
+            var naturalRoutineKey = getNaturalWeaponRoutineKey(weapon);
             if (counts[baseName] === undefined) {
                 counts[baseName] = 0;
             }
             counts[baseName] += 1;
+            if (naturalRoutineKey) {
+                naturalRoutineCounts[naturalRoutineKey] = (naturalRoutineCounts[naturalRoutineKey] || 0) + 1;
+            }
             if (counts[baseName] > 1) {
-                if (isRapidShotVariant(weapon, feats, offense)) {
+                if (naturalRoutineKey && naturalRoutineCounts[naturalRoutineKey] > 1) {
+                    // Alternate melee routines can repeat the same natural weapon at a
+                    // different attack bonus. Keep the clean name; standalone token
+                    // actions are collapsed separately while full attacks remain intact.
+                    weapon.displayName = baseName;
+                } else if (isRapidShotVariant(weapon, feats, offense)) {
                     weapon.displayName = baseName + ' (Rapid Shot x' + weapon.attackBonuses.length + ')';
                     if (weapon.notes.indexOf('Rapid Shot full attack routine.') === -1) {
                         weapon.notes.push('Rapid Shot full attack routine.');
@@ -1976,6 +2403,48 @@
         return dedupeWeaponNames(weapons, feats, offense);
     }
 
+    function splitAttackConnectors(text, connector) {
+        var parts = [], depth = 0, start = 0, i;
+        for (i = 0; i < text.length; i += 1) {
+            if (text.charAt(i) === '(') { depth += 1; }
+            if (text.charAt(i) === ')') { depth -= 1; }
+            var match = depth === 0 && text.slice(i).match(connector);
+            if (match) { parts.push(trim(text.slice(start, i))); i += match[0].length - 1; start = i + 1; }
+        }
+        parts.push(trim(text.slice(start)));
+        return parts.filter(Boolean);
+    }
+
+    function addAlternativeRoutineActions(plan, model) {
+        ['melee_lines', 'ranged_lines'].forEach(function (field) {
+            var type = field === 'melee_lines' ? 'Melee' : 'Ranged';
+            var seen = {}, number = 0;
+            asArray(model.offenseSection[field]).forEach(function (line) {
+                var text = trim(normalizeText(line.raw || '').replace(/^(?:Melee|Ranged)\s+/i, ''));
+                if (splitAttackConnectors(text, /^,\s*/).length > 1) {
+                    model.warnings.push('Comma-separated ' + type.toLowerCase() + ' routines are ambiguous; standalone weapons were retained, but no combined routine action was inferred. Source: ' + text);
+                    return;
+                }
+                var alternatives = splitAttackConnectors(text, /^(?:,?\s+or\s+)/i);
+                alternatives.forEach(function (alternative) {
+                    number += 1;
+                    var parts = splitAttackConnectors(alternative, /^(?:\s+and\s+|,\s+)/i);
+                    if (parts.length < 2 || seen[alternative]) { return; }
+                    seen[alternative] = true;
+                    var weapons = parts.map(function (part) { return parseAttackFragment(part, type); });
+                    if (weapons.some(function (weapon) { return !weapon.attackBonuses.length || !weapon.damage; })) { return; }
+                    var name = type + ' Routine ' + number;
+                    var action = weapons.map(function (weapon) {
+                        var bonuses = getCountBasedFullAttackBonuses(weapon);
+                        return buildTokenActionMacro(model.name, weapon, model, bonuses.length ? bonuses : null,
+                            name + ': ' + weapon.displayName);
+                    }).join('\n');
+                    addPlanAbility(plan, name, action, true);
+                });
+            });
+        });
+    }
+
     function buildCritDamage(damage, critMultiplier) {
         if (!damage) {
             return '0';
@@ -2028,6 +2497,17 @@
 
     function isNaturalWeaponName(baseName) {
         return /^(?:slam|claw|bite|gore|hoof|tail slap|tentacle|sting|pincer|talon|wing|slam \(melee\)|claw \(melee\)|bite \(melee\))$/.test(baseName);
+    }
+
+    function getNaturalWeaponRoutineKey(weapon) {
+        var baseName = normalizedWeaponBaseName(weapon).replace(/\s+\((?:melee|ranged)\)$/, '');
+        if (!isNaturalWeaponName(baseName)) {
+            return '';
+        }
+        return [
+            weapon.attackType || '',
+            baseName
+        ].join('|');
     }
 
     function isWeaponFinesseEligible(weapon) {
@@ -2193,7 +2673,7 @@
             return bonuses;
         }
         if (weapon.attackBonuses && weapon.attackBonuses.length > 1) {
-            return bonuses;
+            return weapon.attackBonuses.length === weapon.count ? weapon.attackBonuses.slice() : bonuses;
         }
         for (i = 0; i < weapon.count; i += 1) {
             bonuses.push(firstBonus);
@@ -2205,13 +2685,39 @@
         return !!(weapon && (!weapon.touch || weapon.attackType === 'Melee'));
     }
 
+    function getPreferredStandaloneWeaponIndexes(model) {
+        var preferredByRoutine = {};
+        var preferredIndexes = {};
+        (model && model.weapons || []).forEach(function (weapon, index) {
+            var routineKey = getNaturalWeaponRoutineKey(weapon);
+            var firstBonus = weapon.attackBonuses && weapon.attackBonuses.length ? weapon.attackBonuses[0] : -999;
+            if (!routineKey) {
+                preferredIndexes[index] = true;
+                return;
+            }
+            if (!preferredByRoutine[routineKey] || firstBonus > preferredByRoutine[routineKey].firstBonus) {
+                preferredByRoutine[routineKey] = {
+                    index: index,
+                    firstBonus: firstBonus
+                };
+            }
+        });
+        Object.keys(preferredByRoutine).forEach(function (routineKey) {
+            preferredIndexes[preferredByRoutine[routineKey].index] = true;
+        });
+        return preferredIndexes;
+    }
+
     function countWeaponTokenActions(model) {
         var count = 0;
-        (model && model.weapons || []).forEach(function (weapon) {
+        var preferredStandaloneIndexes = getPreferredStandaloneWeaponIndexes(model);
+        (model && model.weapons || []).forEach(function (weapon, index) {
             if (!shouldCreateWeaponTokenAction(weapon)) {
                 return;
             }
-            count += 1;
+            if (preferredStandaloneIndexes[index]) {
+                count += 1;
+            }
             if (getCountBasedFullAttackBonuses(weapon).length) {
                 count += 1;
             }
@@ -2224,20 +2730,14 @@
         var normalizedName = normalizedWeaponBaseName(weapon);
         var isNatural = isNaturalWeaponName(normalizedName);
         var isRanged = weapon.attackType === 'Ranged';
-        var damageBits = splitDamageExpression(weapon.damage || '');
         var attackStatExpr = resolveWeaponAttackStat(model, weapon);
-        var damageProfile = resolveWeaponDamageProfile(model, weapon, damageBits);
         var attackAbility = resolveWeaponAttackAbilityMod(model, weapon);
         var attackResidual = (weapon.attackBonuses.length ? weapon.attackBonuses[0] : 0) -
             ((model.bab.bab || 0) + attackAbility + (model.normalizedHeader.sizeMod || 0) + (weapon.enhancementBonus || 0));
-        var damageResidual = damageBits.flatBonus - damageProfile.value - (weapon.enhancementBonus || 0);
-        var baseDamage = '';
         var attackBonuses = (attackBonusesOverride && attackBonusesOverride.length ? attackBonusesOverride : (weapon.attackBonuses && weapon.attackBonuses.length ? weapon.attackBonuses : [0])).slice();
         var firstBonus = attackBonuses[0] || 0;
         var attackBonusTerms = [
             '@{globalAttackBonus}[Global bonus]',
-            '@{flankEnabled}[Flank]',
-            '@{higherGroundEnabled}[Higher Ground]',
             '@{bardicMusicAttackBonus}[Music]',
             '@{spellsAttackBonus}[Spells]',
             '@{powersAttackBonus}[Powers]',
@@ -2266,6 +2766,8 @@
             attackBonusTerms.push('(@{rapidShotEnabled}*@{rapidShotAttackBonus})[Rapid]');
             attackBonusTerms.push('(@{manyShotEnabled}*@{manyShotAttackBonus})[Manyshot]');
         } else {
+            attackBonusTerms.push('@{flankEnabled}[Flank]');
+            attackBonusTerms.push('@{higherGroundEnabled}[Higher Ground]');
             attackBonusTerms.push('(@{twoWeaponsEnabled}*@{primaryHandAttackBonus})[Pr. Ha.]');
             attackBonusTerms.push('(@{flurryBlowsEnabled}*@{flurryBlowsAttackBonus})[Flurry]');
             attackBonusTerms.push('@{powerAttackAttackBonus}[Pow. Att.]');
@@ -2274,25 +2776,29 @@
             }
         }
 
-        if (damageBits.diceNumber && damageBits.diceType) {
-            baseDamage = damageBits.diceNumber + 'd' + damageBits.diceType;
-            if (damageResidual > 0) {
-                baseDamage += '+' + damageResidual;
-            } else if (damageResidual < 0) {
-                baseDamage += damageResidual;
-            }
-        } else {
-            baseDamage = String(damageResidual || 0);
-        }
-
         return attackBonuses.reduce(function (messages, bonus, index) {
             var chunkIndex = Math.floor(index / 4);
             var slot = (index % 4) + 1;
             var overallSlot = index + 1;
             var delta = bonus - firstBonus;
-            var attackCalc = '1d20cs>' + (weapon.critMin || 20) + ' + @{bab}[BAB] + @{epicattackbonus}[Epic AB] + ' + attackStatExpr + '[Ability] + @{size}[size] + ' + (weapon.enhancementBonus || 0) + '[Weapon Enh] + ' + attackResidual + '[Weapon Focus] + ' + attackBonusTerms.join(' + ') + (delta ? ' + ' + delta + '[Routine]' : '');
+            var damageExpression = weapon.attackDamages && weapon.attackDamages[index] ? weapon.attackDamages[index] : (weapon.damage || '');
+            var damageBits = splitDamageExpression(damageExpression);
+            var damageProfile = resolveWeaponDamageProfile(model, weapon, damageBits);
+            var damageResidual = damageBits.flatBonus - damageProfile.value - (weapon.enhancementBonus || 0);
+            var baseDamage = '';
+            if (damageBits.diceNumber && damageBits.diceType) {
+                baseDamage = damageBits.diceNumber + 'd' + damageBits.diceType;
+                if (damageResidual > 0) {
+                    baseDamage += '+' + damageResidual;
+                } else if (damageResidual < 0) {
+                    baseDamage += damageResidual;
+                }
+            } else {
+                baseDamage = String(damageResidual || 0);
+            }
+            var attackCalc = '1d20cs>' + (weapon.critMin || 20) + ' + @{bab}[BAB] + @{epicattackbonus}[Epic AB] + ' + attackStatExpr + '[Ability] + @{size}[size] + ' + (weapon.enhancementBonus || 0) + '[Weapon Enh] + ' + attackResidual + '[Attack adjustment] + ' + attackBonusTerms.join(' + ') + (delta ? ' + ' + delta + '[Routine]' : '');
             var damageCalc = baseDamage + '[Dmg] + ' + damageProfile.expr + '[Weapon Dmg Ability] + ' + (weapon.enhancementBonus || 0) + '[Weapon Enh] + ' + damageBonusTerms.join(' + ') + '';
-            var critCalc = '(' + ((weapon.critMultiplier || 2) - 1) + ') * (' + damageCalc + ')';
+            var critCalc = (weapon.critMultiplier || 2) === 2 ? damageCalc : '(' + (weapon.critMultiplier - 1) + ') * (' + damageCalc + ')';
 
             if (!messages[chunkIndex]) {
                 messages[chunkIndex] = [
@@ -2318,7 +2824,7 @@
             return messages;
         }, []).map(function (parts, index) {
             parts.push('{{fumbleroll=Fumble: [[ d20 ]] }}');
-            parts.push('{{fullattackflag=' + (attackBonuses.length > 1 ? '[[ d1 ]]' : '[[0d1]]') + '}}');
+            if (attackBonuses.length > 1) { parts.push('{{fullattackflag=[[ d1 ]]}}'); }
             if (index === 0 && notes) {
                 parts.push('{{notes=' + escapeMacroText(notes) + '}}');
             }
@@ -2410,11 +2916,11 @@
         var bab = parseBaseAttackLine(offense.base_attack_line || '');
         var spaceReach = parseSpaceReachLine(offense.space_reach_line || '');
         var skillBonuses = extractSkillBonuses(stats.skills || []);
-        var skillContextNotes = extractSituationalSkillNotes(creature.bio_notes || '');
+        var skillContextNotes = extractSituationalSkillNotes(creature.bio_notes || '', stats.skill_details || []);
         var weapons = buildWeaponList(offense, stats.feats || []);
         var spellEntries = buildSpellEntries(offense.spell_sections || [], warnings, identity);
         var maneuvers = asArray(offense.maneuvers || creature.maneuvers);
-        var textBundles = buildTextBundles(creature, normalizedHeader);
+        var textBundles = buildTextBundles(creature, normalizedHeader, identity);
         var possessions = []
             .concat(stats.possessions || [])
             .concat(offense.combat_gear_line ? [stripPrefix(offense.combat_gear_line, 'Combat Gear\\s+')] : []);
@@ -2449,6 +2955,7 @@
             skills: stats.skills || [],
             explicitSkillBonuses: buildExplicitSkillBonusMap(stats.skill_bonuses || []),
             feats: stats.feats || [],
+            featDetails: stats.feat_details || creature.feat_details || [],
             possessions: possessions,
             languages: parseLanguages(header.languages_line || ''),
             weapons: weapons,
@@ -2470,6 +2977,55 @@
         return model;
     }
 
+    function normalizeFeatMatchKey(value) {
+        return normalizeLookupText(
+            trim(normalizeText(value || ''))
+                .replace(/\u1D2E\s*$/, '')
+                .replace(/\s*\((?=[^)]*[+\-\d])[^)]*\)\s*$/, '')
+        );
+    }
+
+    function buildFeatSectionText(feats, featDetails) {
+        var parts = [];
+        var detailsByName = {};
+        var usedDetails = [];
+
+        asArray(featDetails).forEach(function (feat) {
+            var key = normalizeFeatMatchKey(feat && feat.name);
+            if (!key || !feat || !feat.raw) {
+                return;
+            }
+            detailsByName[key] = detailsByName[key] || [];
+            detailsByName[key].push(feat);
+        });
+
+        asArray(feats).filter(Boolean).forEach(function (featName) {
+            var key = normalizeFeatMatchKey(featName);
+            var matches = detailsByName[key] || [];
+            var detail = matches.shift();
+            if (detail) {
+                usedDetails.push(detail);
+                parts.push(detail.raw);
+            } else {
+                parts.push(featName);
+            }
+        });
+
+        asArray(featDetails).forEach(function (feat) {
+            if (feat && feat.raw && usedDetails.indexOf(feat) === -1) {
+                parts.push(feat.raw);
+            }
+        });
+        return parts.join('\n\n');
+    }
+
+    function hasRequiredSections(payload) {
+        var creature = payload && payload.creature;
+        return creature && ['header', 'defense', 'offense', 'statistics'].every(function (section) {
+            return creature[section] && typeof creature[section] === 'object' && !Array.isArray(creature[section]);
+        });
+    }
+
     function validateModel(model) {
         var issues = [];
         if (!model.name) {
@@ -2478,7 +3034,7 @@
         if (!model.payload || model.payload.schema_version !== 1) {
             issues.push('Unsupported or missing schema_version. Expected 1.');
         }
-        if (!model.creature || !model.creature.header || !model.defenseSection || !model.offenseSection || !model.statisticsSection) {
+        if (!hasRequiredSections(model.payload)) {
             issues.push('Unsupported JSON structure. Expected a converted payload with creature.header, creature.defense, creature.offense, and creature.statistics.');
         }
         if (!model.hp.max) {
@@ -2500,58 +3056,38 @@
             model.payload.schema_version !== 1 ||
             !model.creature ||
             !model.creature.header ||
+            !hasRequiredSections(model.payload) ||
             !model.defenseSection ||
             !model.offenseSection ||
             !model.statisticsSection ||
             !model.hp.max;
     }
 
-    function findOrCreateAttr(characterId, name) {
-        var attr = findObjs({
-            _type: 'attribute',
-            characterid: characterId,
-            name: name
-        })[0];
-        if (attr) {
-            return attr;
-        }
-        return createObj('attribute', {
-            characterid: characterId,
-            name: name,
-            current: ''
-        });
-    }
-
-    function setAttr(characterId, name, current, max) {
-        var attr = findOrCreateAttr(characterId, name);
-        attr.set('current', current === null || current === undefined ? '' : current);
-        if (max !== undefined) {
-            attr.set('max', max === null || max === undefined ? '' : max);
-        }
-        return attr;
-    }
-
-    function bulkSetAttrs(characterId, attrs) {
+    function addPlanAttrs(plan, attrs) {
         Object.keys(attrs).forEach(function (name) {
-            setAttr(characterId, name, attrs[name]);
+            plan.attributes[name] = { current: attrs[name], max: '' };
         });
     }
 
-    function createAbility(characterId, name, action, tokenAction) {
-        return createObj('ability', {
-            _characterid: characterId,
-            characterid: characterId,
-            name: name,
-            action: action,
-            istokenaction: tokenAction ? true : false
-        });
+    function addPlanAbility(plan, name, action, tokenAction) {
+        var key = normalizeLookupText(name);
+        if (plan.abilities[key]) {
+            throw new Error('Ambiguous generated Ability identity: ' + name);
+        }
+        if (tokenAction && action.indexOf('&{template:DnD35Attack}') === 0) {
+            plan.attackMacros = plan.attackMacros || {};
+            plan.attackMacros[key] = action;
+            action = COMMAND + ' roll @{character_id} ' + encodeURIComponent(key) + ' ' + attackMacroSignature(action);
+        }
+        plan.abilities[key] = { name: name, action: action, istokenaction: !!tokenAction };
     }
 
-    function buildInitiativeTokenActionMacro() {
-        return '&{template:DnD35Initiative} ' +
-            '{{name=@{selected|token_name}}} ' +
-            '{{check=Initiative:}} ' +
-            '{{checkroll=[[ 1d20 + [[ @{selected|init} ]] + ( [[ (@{selected|init}) ]] /100) &{tracker} ]] }}';
+    function allocateManagedRow(plan, identity) {
+        var occurrence = (plan.rowOccurrences[identity] || 0) + 1;
+        var key = identity + '|' + occurrence;
+        plan.rowOccurrences[identity] = occurrence;
+        plan.rows[key] = plan.previousRows[key] || generateRowId();
+        return plan.rows[key];
     }
 
     function buildAcSlotAttrs(model) {
@@ -2671,7 +3207,7 @@
         return '@{wis-mod}';
     }
 
-    function buildSpellAttrs(model) {
+    function buildSpellAttrs(model, plan) {
         var attrs = {
             spellmode: 2
         };
@@ -2685,11 +3221,12 @@
             var casterLevel = parseCasterLevel(entry.casterLevel);
             var spell = entry.spell;
             var suffix;
-            var rowId = generateRowId();
+            var rowId = allocateManagedRow(plan, ['spell', entry.sectionKind, normalizeLookupText(entry.sectionType), entry.level, normalizeLookupText(spell.name), entry.sectionKind === 'special' || entry.level === null ? normalizeLookupText(entry.usage) : ''].join('|'));
             var level = entry.level;
             var preparedCount = entry.preparedCount ? String(entry.preparedCount) : '';
             var perDayValue = extractSpellPerDayValue(entry);
             var detailText = extractSpellDetailText(spell);
+            var referenceCompact = trim(spell.reference && spell.reference.compact_rules || '');
             var dc = extractSpellDc(spell);
 
             if (casterLevel !== null) {
@@ -2717,7 +3254,7 @@
                 attrs['repeating_spells16_' + rowId + '_spelldc16'] = dc !== null ? dc : '';
                 attrs['repeating_spells16_' + rowId + '_spellname16'] = spell.name || '';
                 attrs['repeating_spells16_' + rowId + '_spelltype16'] = trim(entry.sectionType + (level !== null ? ' ' + level : ''));
-                attrs['repeating_spells16_' + rowId + '_spellduration16'] = detailText;
+                attrs['repeating_spells16_' + rowId + '_spellduration16'] = referenceCompact || detailText;
                 attrs['repeating_spells16_' + rowId + '_spellrange16'] = entry.headerExtras || '';
                 attrs['repeating_spells16_' + rowId + '_spellmacro16'] = adaptSpellMacro(entry);
                 attrs['repeating_spells16_' + rowId + '_spellst16'] = dc !== null ? 'DC ' + dc : '';
@@ -2733,8 +3270,8 @@
             if (dc !== null) {
                 attrs['repeating_spells' + suffix + '_' + rowId + '_spellst' + suffix] = 'DC ' + dc;
             }
-            if (detailText) {
-                attrs['repeating_spells' + suffix + '_' + rowId + '_spellduration' + suffix] = detailText;
+            if (referenceCompact || detailText) {
+                attrs['repeating_spells' + suffix + '_' + rowId + '_spellduration' + suffix] = referenceCompact || detailText;
             }
         });
 
@@ -2756,10 +3293,10 @@
         return attrs;
     }
 
-    function buildManeuverAttrs(model) {
+    function buildManeuverAttrs(model, plan) {
         var attrs = {};
         asArray(model.maneuvers).forEach(function (maneuver) {
-            var rowId = generateRowId();
+            var rowId = allocateManagedRow(plan, ['maneuver', normalizeLookupText(maneuver.name), maneuver.level, normalizeLookupText(maneuver.discipline || maneuver.school)].join('|'));
             var name = trim(maneuver.name || '');
             var macro = trim(maneuver.macro_text || maneuver.macro || '');
             var suffix = '45';
@@ -2793,8 +3330,12 @@
         }).join(', ');
     }
 
-    function applyModelToCharacter(character, model) {
-        var characterId = character.id;
+    function buildWritePlan(model, manifest) {
+        var plan = {
+            character: { name: model.name }, attributes: {}, abilities: {}, rows: {},
+            rowOccurrences: {}, previousRows: manifest && manifest.rows || {},
+            tokenPolicy: buildTokenPolicy(model.name, model.hp.current || model.hp.max, model.ac.total)
+        };
         var header = model.normalizedHeader;
         var identity = model.identity || { race: '', classes: [] };
         var strMod = abilityMod(model.abilities.str || 10);
@@ -2852,7 +3393,7 @@
             languages: splitAndDisplayList(model.languages || ''),
             racialabilities: model.textBundles.racialAbilities || '',
             classabilities: model.textBundles.classAbilities || '',
-            feats: (model.feats || []).join(', '),
+            feats: buildFeatSectionText(model.feats, model.featDetails),
             other: model.textBundles.other || '',
             otheritems: '',
             otherinfo: importedItems,
@@ -2915,7 +3456,7 @@
             npccha: model.abilities.cha || '',
             'npccha-mod': abilityMod(model.abilities.cha || 10),
             npcskills: (model.skills || []).map(function (skill) { return toDisplayCase(skill); }).join(', '),
-            npcfeats: (model.feats || []).join(', '),
+            npcfeats: buildFeatSectionText(model.feats, model.featDetails),
             npccr: model.cr || '',
             npctreasure: (model.possessions || []).map(function (item) { return toDisplayCase(item); }).join(', '),
             npcdescr: model.textBundles.bio || '',
@@ -2930,50 +3471,63 @@
             npcAttrs['npclevel' + slot] = entry.level;
         });
 
-        bulkSetAttrs(characterId, pcAttrs);
-        bulkSetAttrs(characterId, npcAttrs);
-        bulkSetAttrs(characterId, buildAcSlotAttrs(model));
-        bulkSetAttrs(characterId, model.skillImport.attrs || {});
-        bulkSetAttrs(characterId, buildSpellAttrs(model));
-        bulkSetAttrs(characterId, buildManeuverAttrs(model));
-        setAttr(characterId, 'hitpoints', importedHp, importedHp);
-        setAttr(characterId, 'npchitpoints', importedHp, importedHp);
-        createAbility(characterId, 'Initiative', buildInitiativeTokenActionMacro(), true);
-
+        addPlanAttrs(plan, pcAttrs);
+        addPlanAttrs(plan, npcAttrs);
+        addPlanAttrs(plan, buildAcSlotAttrs(model));
+        addPlanAttrs(plan, model.skillImport.attrs || {});
+        addPlanAttrs(plan, buildSpellAttrs(model, plan));
+        addPlanAttrs(plan, buildManeuverAttrs(model, plan));
+        plan.attributes.hitpoints.max = importedHp;
+        plan.attributes.npchitpoints.max = importedHp;
         for (i = 0; i < Math.min(model.weapons.length, MAX_PC_WEAPONS); i += 1) {
-            bulkSetAttrs(characterId, buildPcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
+            addPlanAttrs(plan, buildPcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
         }
         for (i = 0; i < Math.min(model.weapons.length, MAX_NPC_ATTACKS); i += 1) {
-            bulkSetAttrs(characterId, buildNpcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
+            addPlanAttrs(plan, buildNpcWeaponAttrs(model.name, model.weapons[i], i + 1, model));
         }
 
+        var preferredStandaloneIndexes = getPreferredStandaloneWeaponIndexes(model);
         model.weapons.forEach(function (weapon, index) {
             var prefix = index < MAX_PC_WEAPONS ? 'weapon' + (index + 1) : null;
             var countBasedFullAttackBonuses = getCountBasedFullAttackBonuses(weapon);
             if (prefix) {
-                if (shouldCreateWeaponTokenAction(weapon)) {
-                    createAbility(characterId, weapon.displayName, buildTokenActionMacro(model.name, weapon, model), true);
+                if (shouldCreateWeaponTokenAction(weapon) && preferredStandaloneIndexes[index]) {
+                    addPlanAbility(
+                        plan,
+                        weapon.displayName,
+                        buildTokenActionMacro(
+                            model.name,
+                            weapon,
+                            model,
+                            countBasedFullAttackBonuses.length ? [weapon.attackBonuses[0]] : null
+                        ),
+                        true
+                    );
                 }
                 if (shouldCreateWeaponTokenAction(weapon) && countBasedFullAttackBonuses.length) {
-                    createAbility(characterId, weapon.displayName + ' Full Attack', buildTokenActionMacro(model.name, weapon, model, countBasedFullAttackBonuses, 'Full Attack with ' + weapon.displayName), true);
+                    addPlanAbility(plan, weapon.displayName + ' Full Attack', buildTokenActionMacro(model.name, weapon, model, countBasedFullAttackBonuses, 'Full Attack with ' + weapon.displayName), true);
                 }
             }
         });
 
         if (model.textBundles.bio) {
-            character.set('bio', model.textBundles.bio);
+            plan.character.bio = model.textBundles.bio;
         }
+        addAlternativeRoutineActions(plan, model);
+        if (manifest && manifest.baseline) {
+            Object.keys(manifest.baseline.character).forEach(function (field) {
+                if (!Object.prototype.hasOwnProperty.call(plan.character, field)) {
+                    plan.character[field] = field === 'avatar' ? manifest.baseline.character[field] : '';
+                }
+            });
+        }
+        delete plan.previousRows;
+        delete plan.rowOccurrences;
+        return plan;
     }
 
     function generateRowId() {
-        return '-' + Date.now().toString(36) + Math.floor(Math.random() * 999999).toString(36);
-    }
-
-    function getSelectedGraphic(msg) {
-        if (!msg.selected || !msg.selected.length) {
-            return null;
-        }
-        return getObj('graphic', msg.selected[0]._id);
+        return '-' + Date.now().toString(36) + ('00000000' + (++rowSequence).toString(36)).slice(-8) + Math.floor(Math.random() * 999999).toString(36);
     }
 
     function normalizeRoll20ImageUrl(imgsrc, size) {
@@ -2996,66 +3550,6 @@
             String(imgsrc || '');
     }
 
-    function configureTokenForCharacter(token, character, hpValue, acValue, characterName) {
-        var rawImgsrc = token.get('imgsrc');
-        var imgsrc = cleanImgsrc(rawImgsrc);
-        var avatarImgsrc = buildAvatarImgsrc(rawImgsrc);
-        var tokenData;
-        if (!imgsrc) {
-            return { ok: false, reason: 'Selected token does not have a usable image source.' };
-        }
-
-        token.set({
-            name: characterName,
-            represents: character.id,
-            bar1_link: '',
-            bar1_value: hpValue || '',
-            bar1_max: hpValue || '',
-            bar2_link: '',
-            bar2_value: acValue || '',
-            bar2_max: '',
-            showname: false,
-            showplayers_name: false,
-            showplayers_bar1: false,
-            showplayers_bar2: false
-        });
-
-        if (avatarImgsrc) {
-            character.set('avatar', avatarImgsrc);
-        }
-
-        tokenData = {
-            imgsrc: imgsrc,
-            name: characterName,
-            represents: character.id,
-            width: token.get('width'),
-            height: token.get('height'),
-            layer: 'objects',
-            bar1_link: '',
-            bar1_value: hpValue || '',
-            bar1_max: hpValue || '',
-            bar2_link: '',
-            bar2_value: acValue || '',
-            bar2_max: '',
-            showname: false,
-            showplayers_name: false,
-            light_hassight: token.get('light_hassight'),
-            showplayers_bar1: false,
-            showplayers_bar2: false,
-            tint_color: token.get('tint_color')
-        };
-        if (typeof setDefaultTokenForCharacter === 'function') {
-            setDefaultTokenForCharacter(character, token);
-        } else {
-            character.set('defaulttoken', JSON.stringify(tokenData));
-        }
-        return {
-            ok: true,
-            avatarSet: !!avatarImgsrc,
-            avatarReason: avatarImgsrc ? '' : 'Selected token does not have a usable image source for the avatar field.'
-        };
-    }
-
     function summarizeModel(model) {
         return [
             'Creature: ' + model.name,
@@ -3067,54 +3561,6 @@
             'HP: ' + (model.hp.current || model.hp.max || '?'),
             'AC: ' + (model.ac.total !== null ? model.ac.total : '?')
         ];
-    }
-
-    function importModelFromHandout(handout, msg) {
-        loadHandoutPayload(handout, function (payloadText) {
-            var payload;
-            var model;
-            var issues;
-            var character;
-            var selectedToken;
-            var bindResult;
-
-            if (!payloadText) {
-                sendGM(renderList('Import Failed', ['The handout is empty or does not contain JSON.']));
-                return;
-            }
-
-            try {
-                payload = tryParsePayload(payloadText);
-            } catch (error) {
-                sendGM(renderList('Import Failed', ['JSON parse error: ' + error.message]));
-                return;
-            }
-
-            model = buildModel(payload);
-            issues = validateModel(model);
-            if (hasFatalValidationIssue(model)) {
-                sendGM(renderList('Import Failed', summarizeModel(model).concat(issues)));
-                return;
-            }
-            character = createObj('character', {
-                name: model.name
-            });
-
-            applyModelToCharacter(character, model);
-            selectedToken = getSelectedGraphic(msg);
-            if (selectedToken) {
-                bindResult = configureTokenForCharacter(selectedToken, character, model.hp.current || model.hp.max, model.ac.total, model.name);
-                if (!bindResult.ok) {
-                    issues.push('Character imported, but selected token could not be bound: ' + bindResult.reason);
-                } else if (!bindResult.avatarSet && bindResult.avatarReason) {
-                    issues.push('Token bound, but avatar was not copied: ' + bindResult.avatarReason);
-                }
-            } else {
-                issues.push('No token was selected during import, so default token creation was skipped.');
-            }
-
-            sendGM(renderList('Import Complete', summarizeModel(model).concat(['Character id: ' + character.id]).concat(issues)));
-        });
     }
 
     function validateHandout(handout) {
@@ -3134,145 +3580,1062 @@
                 return;
             }
 
-            model = buildModel(payload);
-            issues = validateModel(model);
-            sendGM(renderList('Validation Summary', summarizeModel(model).concat(issues)));
+            try {
+                model = buildModel(payload);
+                issues = validateModel(model);
+                sendGM(renderList('Validation Summary', summarizeModel(model).concat(issues)));
+            } catch (validationError) {
+                sendGM(renderList('Validation Failed', [validationError.message]));
+            }
         });
     }
 
-    function resolveCharacter(target) {
-        var normalized = normalizeNameTarget(target);
-        var direct = getObj('character', normalized);
-        if (direct) {
-            return { character: direct, error: null };
+    // Managed Lifecycle v1. All object writes are driven by buildWritePlan().
+    var MANIFEST_VERSION = 1;
+    var rowSequence = 0;
+    var operationLocks = {};
+    var TOKEN_FIELDS = ['name', 'represents', 'bar1_link', 'bar1_value', 'bar1_max',
+        'bar2_link', 'bar2_value', 'bar2_max', 'showname', 'showplayers_name',
+        'showplayers_bar1', 'showplayers_bar2'];
+    var DEFAULT_FIELDS = TOKEN_FIELDS.concat(['imgsrc', 'width', 'height', 'layer']);
+    var MAX_MANAGED_ATTRIBUTES = 2500;
+    var MAX_TOUCHED = 5000;
+    var READ_TIMEOUT_MS = 10000;
+
+    function cloneData(value) {
+        return JSON.parse(JSON.stringify(value));
+    }
+
+    function hasKey(object, key) {
+        return Object.prototype.hasOwnProperty.call(object || {}, key);
+    }
+
+    function lifecycleState() {
+        if (!state.D35StatblockImporter) {
+            state.D35StatblockImporter = { version: MANIFEST_VERSION, characters: {}, lastReport: null };
         }
-        var matches = findObjs({
-            _type: 'character',
-            name: normalized
+        if (state.D35StatblockImporter.version !== MANIFEST_VERSION) {
+            throw new Error('Unsupported lifecycle state version. No migration was attempted.');
+        }
+        return state.D35StatblockImporter;
+    }
+
+    function imageIdentity(value) {
+        if (!normalizeRoll20ImageUrl(value, 'thumb')) { return String(value || ''); }
+        var match = String(value || '').match(/\/images\/(.+)\/(?:thumb|med|max|original)[^/?]*(?:\?.*)?$/i);
+        return match ? match[1] : String(value || '');
+    }
+
+    function sameValue(actual, expected, field) {
+        var a = actual === undefined || actual === null ? '' : actual;
+        var b = expected === undefined || expected === null ? '' : expected;
+        if (field === 'imgsrc' || field === 'avatar') {
+            return imageIdentity(a) === imageIdentity(b);
+        }
+        if (typeof a === 'boolean' || typeof b === 'boolean') {
+            return String(a) === String(b) || (a === true && b === '1') || (a === '1' && b === true) ||
+                (a === false && b === '0') || (a === '0' && b === false);
+        }
+        if (/^[+-]?\d+(?:\.\d+)?$/.test(String(a)) && /^[+-]?\d+(?:\.\d+)?$/.test(String(b))) {
+            return Number(a) === Number(b);
+        }
+        return String(a).replace(/\r\n/g, '\n') === String(b).replace(/\r\n/g, '\n');
+    }
+
+    function sameDefaultTokenValue(actual, expected, field) {
+        // Roll20 may omit disabled visibility flags from the saved token blob.
+        if (['showname', 'showplayers_name', 'showplayers_bar1', 'showplayers_bar2'].indexOf(field) !== -1) {
+            if (actual === undefined || actual === null) { actual = false; }
+            if (expected === undefined || expected === null) { expected = false; }
+        }
+        return sameValue(actual, expected, field);
+    }
+
+    function preservesCurrent(name) {
+        return /^(?:hitpoint|hitpoints|npchitpoints)$/.test(name) ||
+            /^repeating_spells\d+_.+_(?:spellused|maneuverused|maneuverreadied|maneuvergranted)\d+$/.test(name);
+    }
+
+    function sameRecalcValue(actual, expected) {
+        // The sheet consumes this request (1) and returns it to idle (0).
+        return /^(?:0|1)$/.test(String(actual)) && /^(?:0|1)$/.test(String(expected));
+    }
+
+    function buildTokenPolicy(name, hp, ac) {
+        return {
+            name: name, represents: '', bar1_link: '', bar1_value: hp === null ? '' : hp,
+            bar1_max: hp === null ? '' : hp, bar2_link: '', bar2_value: ac === null ? '' : ac,
+            bar2_max: '', showname: false, showplayers_name: false,
+            showplayers_bar1: false, showplayers_bar2: false
+        };
+    }
+
+    function resolveToken(msg, explicitId, required) {
+        var selected = msg.selected || [];
+        var token;
+        if (!explicitId && selected.length > 1) {
+            throw new Error('Select exactly one token, or supply --token <token-id>.');
+        }
+        if (!explicitId && !selected.length) {
+            if (required) { throw new Error('Select one token, or supply --token <token-id>.'); }
+            return null;
+        }
+        if (!explicitId && selected[0]._type !== 'graphic') {
+            throw new Error('The selected object must be a token graphic.');
+        }
+        token = getObj('graphic', explicitId || selected[0]._id);
+        if (!token || (token.get('_subtype') || token.get('subtype')) !== 'token') {
+            throw new Error('Token ID does not identify a token graphic.');
+        }
+        return token;
+    }
+
+    function addTokenIntent(plan, token, characterId, avatar) {
+        var image = token.get('imgsrc');
+        var represents = token.get('represents');
+        var policy = cloneData(plan.tokenPolicy);
+        var template;
+        if (represents && represents !== characterId) {
+            throw new Error('The token already represents another Character. Unbind it explicitly first.');
+        }
+        // This is an existing Roll20 graphic, not a new image upload. Library,
+        // marketplace and CDN tokens need not share one URL shape or query string.
+        if (!/^https?:\/\/\S+$/i.test(String(image || ''))) {
+            throw new Error('The selected token must have a valid HTTP(S) image URL.');
+        }
+        if (!(Number(token.get('width')) > 0) || !(Number(token.get('height')) > 0)) {
+            throw new Error('The token must have positive width and height.');
+        }
+        if (typeof setDefaultTokenForCharacter !== 'function') {
+            throw new Error('setDefaultTokenForCharacter is unavailable; token binding cannot be verified.');
+        }
+        policy.represents = characterId || '';
+        template = cloneData(policy);
+        template.imgsrc = cleanImgsrc(image);
+        template.width = token.get('width');
+        template.height = token.get('height');
+        template.layer = 'objects';
+        plan.token = { id: token.id, values: policy };
+        plan.defaultToken = template;
+        plan.bindToken = true;
+        plan.tokenPreserveHp = !!represents;
+        plan.tokenPageId = token.get('_pageid') || token.get('pageid');
+        if (!plan.tokenPageId) { throw new Error('The token must belong to a page.'); }
+        // Rebinding must not heal an existing encounter token.
+        if (represents) { plan.token.values.bar1_value = token.get('bar1_value'); }
+        if (avatar) {
+            plan.character.avatar = buildAvatarImgsrc(image);
+            plan.replaceAvatar = true;
+        }
+    }
+
+    function finishPlan(plan, manifest, characterId) {
+        if (plan.token) { plan.token.values.represents = characterId; }
+        if (plan.defaultToken) { plan.defaultToken.represents = characterId; }
+        if (!plan.bindToken && manifest && manifest.baseline) {
+            plan.token = cloneData(manifest.baseline.token || null);
+            plan.defaultToken = cloneData(manifest.baseline.defaultToken || null);
+            if (plan.defaultToken) {
+                Object.keys(plan.tokenPolicy).forEach(function (field) {
+                    plan.defaultToken[field] = field === 'represents' ? characterId : plan.tokenPolicy[field];
+                });
+                plan.tokenPageId = manifest.tokenPageId;
+                if (typeof setDefaultTokenForCharacter !== 'function') {
+                    throw new Error('setDefaultTokenForCharacter is unavailable.');
+                }
+            }
+        }
+        if (plan.defaultToken && !getObj('page', plan.tokenPageId)) {
+            throw new Error('The reusable token page no longer exists; bind a token on an existing page.');
+        }
+        if (Object.keys(plan.attributes).length > MAX_MANAGED_ATTRIBUTES ||
+                Object.keys(plan.abilities).length > 256 || Object.keys(plan.rows).length > 512) {
+            throw new Error('Managed plan exceeds the v1 safety limit.');
+        }
+        return plan;
+    }
+
+    function readSnapshot(characterId, tokenId, callback) {
+        var character = getObj('character', characterId);
+        var snapshot = { character: {}, attributes: {}, abilities: [], token: null, defaultToken: null };
+        var remaining = 3;
+        var done = false;
+        var timeout;
+        function completeRead(error) {
+            var token;
+            if (done) { return; }
+            if (!error && --remaining > 0) { return; }
+            done = true;
+            clearTimeout(timeout);
+            if (!error) {
+                try {
+                    snapshot.character.name = character.get('name');
+                    snapshot.character.avatar = character.get('avatar');
+                    findObjs({ _type: 'attribute', _characterid: characterId }).forEach(function (attr) {
+                        var name = attr.get('name');
+                        snapshot.attributes[name] = snapshot.attributes[name] || [];
+                        snapshot.attributes[name].push({ id: attr.id, values: { current: attr.get('current'), max: attr.get('max') } });
+                    });
+                    snapshot.abilities = findObjs({ _type: 'ability', _characterid: characterId }).map(function (ability) {
+                        return { id: ability.id, values: { name: ability.get('name'), action: ability.get('action'), istokenaction: ability.get('istokenaction') } };
+                    });
+                    token = tokenId && getObj('graphic', tokenId);
+                    if (token) {
+                        snapshot.token = { id: token.id, values: {} };
+                        TOKEN_FIELDS.forEach(function (field) { snapshot.token.values[field] = token.get(field); });
+                    }
+                } catch (readError) { error = readError; }
+            }
+            callback(error, snapshot);
+        }
+        if (!character) { callback(new Error('Character no longer exists.'), snapshot); return; }
+        timeout = setTimeout(function () { completeRead(new Error('Timed out reading Character blobs.')); }, READ_TIMEOUT_MS);
+        try {
+            character.get('bio', function (value) { snapshot.character.bio = value; completeRead(); });
+            character.get('gmnotes', function (value) { snapshot.character.gmnotes = value; completeRead(); });
+            character.get('_defaulttoken', function (value) {
+                try { snapshot.defaultToken = value ? JSON.parse(value) : null; }
+                catch (error) { completeRead(new Error('Saved default token is invalid JSON.')); return; }
+                completeRead();
+            });
+        } catch (error) { completeRead(error); }
+    }
+
+    function newReport(mode, characterId, sourceHandoutId) {
+        return {
+            reportVersion: 1, importerVersion: VERSION, operation: mode,
+            characterId: characterId || null, sourceHandoutId: sourceHandoutId || null,
+            at: new Date().toISOString(), status: 'preflight', storedObjectsVerified: false,
+            sheetCalculationsVerified: false, checks: [], issues: [], preserved: [], touched: []
+        };
+    }
+
+    function reportIssue(report, code, path, expected, observed) {
+        report.issues.push({ code: code, path: path, expected: expected === undefined ? null : expected,
+            observed: observed === undefined ? null : observed });
+    }
+
+    function compareManaged(report, phase, path, previous, observed, proposed, field, preserve, compare) {
+        compare = compare || sameValue;
+        report.checks.push({ phase: phase, path: path, previous: previous === undefined ? null : previous,
+            expected: proposed === undefined ? null : proposed, observed: observed === undefined ? null : observed,
+            preserved: !!preserve });
+        if (preserve) {
+            report.preserved.push(path);
+        } else if (phase === 'preflight') {
+            if (previous !== undefined && !compare(observed, previous, field)) {
+                reportIssue(report, 'conflict', path, previous, observed);
+            }
+        } else if (!compare(observed, proposed, field)) {
+            reportIssue(report, 'mismatch', path, proposed, observed);
+        }
+    }
+
+    function attributeValueComparator(plan, snapshot, name) {
+        // Live 0.6.0 commissioning: an absent score's PC total can become 10,
+        // while its base, NPC score and both modifiers retain the non-score
+        // mapping. Only that corroborated representation is equivalent to blank.
+        // Object identity, duplicates, maxima and all numeric scores stay strict.
+        var companions = {};
+        if (/^(str|dex|con|int|wis|cha)$/.test(name) && plan.attributes[name] &&
+                plan.attributes[name].current === '') {
+            companions[name + '-base'] = '';
+            companions['npc' + name] = '';
+            companions[name + '-mod'] = 0;
+            companions['npc' + name + '-mod'] = 0;
+        }
+        var corroborated = Object.keys(companions).length && Object.keys(companions).every(function (key) {
+            var expected = plan.attributes[key];
+            var objects = snapshot.attributes[key];
+            return expected && sameValue(expected.current, companions[key]) && objects && objects.length === 1 &&
+                sameValue(objects[0].values.current, companions[key]);
         });
-        if (!matches.length) {
-            return { character: null, error: 'No character found with the exact name "' + normalized + '".' };
-        }
-        if (matches.length > 1) {
-            return { character: null, error: 'Multiple characters match "' + normalized + '". Please use the character id instead.' };
-        }
-        return { character: matches[0], error: null };
+        return function (actual, expected, field) {
+            return sameValue(actual, expected, field) || (corroborated && field === 'current' &&
+                expected === '' && sameValue(actual, 10));
+        };
     }
 
-    function getAttrCurrent(characterId, name) {
-        var attr = findObjs({
-            _type: 'attribute',
-            characterid: characterId,
-            name: name
-        })[0];
-        return attr ? attr.get('current') : '';
+    function inspectPlan(plan, manifest, snapshot, report, phase, adoption) {
+        var previous = manifest && manifest.baseline;
+        var owned = manifest && manifest.owned || { attributes: {}, abilities: {} };
+        var names = {};
+        Object.keys(plan.character).forEach(function (field) {
+            if (phase === 'preflight' && !adoption && previous && !hasKey(previous.character, field) &&
+                    snapshot.character[field] && !(field === 'avatar' && plan.replaceAvatar)) {
+                reportIssue(report, 'unowned-collision', 'character.' + field, 'empty unowned field', snapshot.character[field]);
+            }
+            compareManaged(report, phase, 'character.' + field, previous && previous.character[field],
+                snapshot.character[field], plan.character[field], field, false);
+            if (adoption && !sameValue(snapshot.character[field], plan.character[field], field)) {
+                reportIssue(report, 'adoption-mismatch', 'character.' + field, plan.character[field], snapshot.character[field]);
+            }
+        });
+        Object.keys(previous && previous.attributes || {}).concat(Object.keys(plan.attributes)).forEach(function (name) { names[name] = true; });
+        Object.keys(names).forEach(function (name) {
+            var matches = snapshot.attributes[name] || [];
+            var id = owned.attributes[name];
+            var expected = plan.attributes[name];
+            var old = previous && previous.attributes[name];
+            var observed = matches[0] && matches[0].values;
+            if (matches.length > 1) { reportIssue(report, 'duplicate', 'attribute.' + name, 'one object', matches.map(function (obj) { return obj.id; })); }
+            if (id && (!matches.length || matches[0].id !== id)) {
+                reportIssue(report, 'missing-or-renamed-owned-object', 'attribute.' + name, id, matches[0] && matches[0].id);
+            }
+            if (phase === 'readback' && expected && !matches.length) {
+                reportIssue(report, 'missing', 'attribute.' + name, expected, null);
+            }
+            if (phase === 'preflight' && expected && matches.length && !id && !adoption) {
+                reportIssue(report, 'unowned-collision', 'attribute.' + name, 'no preexisting object', matches[0].id);
+            }
+            if (phase === 'readback' && !expected && id && matches.some(function (obj) { return obj.id === id; })) {
+                reportIssue(report, 'stale', 'attribute.' + name, 'removed', id);
+            }
+            if (!expected && phase === 'readback') { return; }
+            Object.keys(expected || old || {}).forEach(function (field) {
+                var compare = name === 'recalc' && field === 'current' ? sameRecalcValue : attributeValueComparator(plan, snapshot, name);
+                var preserve = field === 'current' && preservesCurrent(name) && !!matches.length;
+                // New live-state fields are initialized and verified on creation, preserved thereafter.
+                if (phase === 'readback') {
+                    preserve = field === 'current' && preservesCurrent(name) &&
+                        (report.operation === 'audit' || !!(plan.preservedCurrent && plan.preservedCurrent[name]));
+                }
+                compareManaged(report, phase, 'attribute.' + name + '.' + field,
+                    old && old[field], observed && observed[field], expected && expected[field], field, preserve, compare);
+                if (/^(str|dex|con|int|wis|cha)$/.test(name) && field === 'current' && expected &&
+                        expected[field] === '' && observed && !sameValue(observed[field], expected[field]) &&
+                        compare(observed[field], expected[field], field)) {
+                    report.checks[report.checks.length - 1].representation = 'corroborated-absent-ability-placeholder';
+                }
+                if (adoption && (!observed || (!preserve && !compare(observed[field], expected[field], field)))) {
+                    reportIssue(report, 'adoption-mismatch', 'attribute.' + name + '.' + field, expected[field], observed && observed[field]);
+                }
+            });
+        });
+        names = {};
+        Object.keys(previous && previous.abilities || {}).concat(Object.keys(plan.abilities)).forEach(function (key) { names[key] = true; });
+        Object.keys(names).forEach(function (key) {
+            var expected = plan.abilities[key];
+            var old = previous && previous.abilities[key];
+            var id = owned.abilities[key];
+            var found = snapshot.abilities.filter(function (obj) { return obj.id === id; })[0];
+            var sameName = snapshot.abilities.filter(function (obj) { return obj.values.name === (expected || old).name; });
+            if (sameName.length > 1) { reportIssue(report, 'duplicate', 'ability.' + key, 'one object', sameName.map(function (obj) { return obj.id; })); }
+            if (id && !found) { reportIssue(report, 'missing', 'ability.' + key, id, null); }
+            if (!id && sameName.length) {
+                if (adoption) { found = sameName[0]; }
+                else { reportIssue(report, 'unowned-collision', 'ability.' + key, 'no preexisting object', sameName[0].id); }
+            }
+            if (phase === 'readback' && expected && !found) { reportIssue(report, 'missing', 'ability.' + key, expected, null); }
+            if (phase === 'readback' && !expected && found) { reportIssue(report, 'stale', 'ability.' + key, 'removed', found.id); }
+            if (!expected && phase === 'readback') { return; }
+            Object.keys(expected || old).forEach(function (field) {
+                compareManaged(report, phase, 'ability.' + key + '.' + field, old && old[field],
+                    found && found.values[field], expected && expected[field], field, false);
+                if (adoption && (!found || !sameValue(found.values[field], expected[field], field))) {
+                    reportIssue(report, 'adoption-mismatch', 'ability.' + key + '.' + field, expected[field], found && found.values[field]);
+                }
+            });
+        });
+        if (plan.token) {
+            if (!snapshot.token || snapshot.token.id !== plan.token.id) { reportIssue(report, 'missing', 'token', plan.token.id, null); }
+            TOKEN_FIELDS.forEach(function (field) {
+                var old = previous && previous.token && previous.token.id === plan.token.id ? previous.token.values[field] : undefined;
+                var observed = snapshot.token && snapshot.token.values[field];
+                compareManaged(report, phase, 'token.' + field, old, observed, plan.token.values[field], field,
+                    field === 'bar1_value' && (phase === 'preflight' || report.operation === 'audit' ||
+                        (!plan.bindToken && report.operation !== 'import') || plan.tokenPreserveHp));
+            });
+        }
+        if (plan.defaultToken) {
+            if (!snapshot.defaultToken && phase === 'readback') { reportIssue(report, 'missing', 'defaultToken', plan.defaultToken, null); }
+            if (phase === 'preflight' && snapshot.defaultToken && !(previous && previous.defaultToken) && !plan.bindToken) {
+                reportIssue(report, 'unowned-collision', 'defaultToken', 'explicit bind required', snapshot.defaultToken);
+            }
+            DEFAULT_FIELDS.forEach(function (field) {
+                compareManaged(report, phase, 'defaultToken.' + field,
+                    previous && previous.defaultToken ? previous.defaultToken[field] : undefined,
+                    snapshot.defaultToken && snapshot.defaultToken[field], plan.defaultToken[field], field, false, sameDefaultTokenValue);
+            });
+        }
+        // A manually added field in an owned repeating row remains unowned, but a copied
+        // row with the same logical name is ambiguous and must be surfaced by audit.
+        Object.keys(plan.rows).forEach(function (key) {
+            var rowId = plan.rows[key];
+            var rowNames = Object.keys(plan.attributes).filter(function (name) {
+                return name.indexOf('_' + rowId + '_') !== -1 && /_(?:spellname|maneuvername)\d+$/.test(name);
+            });
+            rowNames.forEach(function (name) {
+                var parts = name.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+                var logicalMatches = Object.keys(snapshot.attributes).filter(function (actualName) {
+                    var actualParts = actualName.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+                    return actualParts && actualParts[1] === parts[1] && actualParts[3] === parts[3] &&
+                        snapshot.attributes[actualName].some(function (obj) { return sameValue(obj.values.current, plan.attributes[name].current); });
+                });
+                // Count only beyond the number of intentional identical spell identities.
+                var intended = Object.keys(plan.attributes).filter(function (candidate) {
+                    var bits = candidate.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+                    return bits && bits[1] === parts[1] && bits[3] === parts[3] && sameValue(plan.attributes[candidate].current, plan.attributes[name].current);
+                }).length;
+                if (logicalMatches.length > intended) { reportIssue(report, 'duplicate-row', 'row.' + key, intended, logicalMatches); }
+            });
+        });
     }
 
-    function bindSelectedTokenToCharacter(target, msg) {
-        var resolved = resolveCharacter(target);
-        var token = getSelectedGraphic(msg);
-        var hp = '';
-        var ac = '';
-        var result;
+    function adoptRowMap(plan, snapshot) {
+        var map = {};
+        var used = {};
+        Object.keys(plan.rows).forEach(function (key) {
+            var row = plan.rows[key];
+            var name = Object.keys(plan.attributes).filter(function (field) {
+                return field.indexOf('_' + row + '_') !== -1 && /_(?:spellname|maneuvername)\d+$/.test(field);
+            })[0];
+            var parts = name && name.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+            var matches = parts && Object.keys(snapshot.attributes).filter(function (field) {
+                var actual = field.match(/^(repeating_spells\d+)_([^_]+)_(.+)$/);
+                return actual && actual[1] === parts[1] && actual[3] === parts[3] &&
+                    snapshot.attributes[field].length === 1 && sameValue(snapshot.attributes[field][0].values.current, plan.attributes[name].current);
+            });
+            if (!matches || matches.length !== 1) { throw new Error('Adoption requires one existing matching repeating row: ' + key); }
+            map[key] = matches[0].match(/^(repeating_spells\d+)_([^_]+)_/)[2];
+            if (used[map[key]]) { throw new Error('Adoption found an ambiguous repeating-row identity.'); }
+            used[map[key]] = true;
+        });
+        return map;
+    }
 
-        if (resolved.error) {
-            sendGM(renderList('Bind Failed', [resolved.error]));
+    function snapshotOwned(plan, snapshot) {
+        var owned = { characterFields: Object.keys(plan.character), attributes: {}, abilities: {} };
+        Object.keys(plan.attributes).forEach(function (name) {
+            if (snapshot.attributes[name] && snapshot.attributes[name].length === 1) { owned.attributes[name] = snapshot.attributes[name][0].id; }
+        });
+        Object.keys(plan.abilities).forEach(function (key) {
+            var matches = snapshot.abilities.filter(function (obj) { return obj.values.name === plan.abilities[key].name; });
+            if (matches.length === 1) { owned.abilities[key] = matches[0].id; }
+        });
+        return owned;
+    }
+
+    function storeReport(report) {
+        lifecycleState().lastReport = report;
+        sendGM(renderList('Managed ' + report.operation + ': ' + report.status, [
+            'Character id: ' + (report.characterId || '(not created)'),
+            'Stored Roll20 objects verified: ' + (report.storedObjectsVerified ? 'yes' : 'no'),
+            'Sheet calculations / roll behavior verified: no (live commissioning required).',
+            'Warnings: ' + (report.warnings || []).length,
+            'Issues: ' + report.issues.length + '; preserved values: ' + report.preserved.length + '; touched objects/fields: ' + report.touched.length
+        ].concat((report.warnings || []).slice(0, 4)).concat(report.issues.slice(0, 8).map(function (issue) {
+            return issue.code + ': ' + issue.path + (issue.code === 'operation-error' && issue.observed ? ' — ' + issue.observed : '');
+        })).concat([
+            'Machine-readable JSON: ' + COMMAND + ' report (exports the latest report to a GM-only handout).'
+        ])));
+    }
+
+    function journalTouch(manifest, report, kind, id, path, action) {
+        var entry = { kind: kind, id: id, path: path, action: action };
+        if (report.touched.length >= MAX_TOUCHED) { throw new Error('Operation journal limit exceeded.'); }
+        report.touched.push(entry);
+        manifest.lastOperation.touched.push(entry);
+        return entry;
+    }
+
+    function captureDefaultToken(character, plan, manifest, snapshot, report) {
+        var props;
+        var scratch;
+        var existing;
+        if (!plan.defaultToken) { return; }
+        if (snapshot.defaultToken && DEFAULT_FIELDS.every(function (field) {
+            return sameDefaultTokenValue(snapshot.defaultToken[field], plan.defaultToken[field], field);
+        })) { return; }
+        // Capture the actual selected token when it already matches the reusable
+        // policy. This also works for marketplace images that the API cannot clone.
+        existing = plan.bindToken && plan.token && getObj('graphic', plan.token.id);
+        if (!snapshot.defaultToken && existing && DEFAULT_FIELDS.every(function (field) {
+            return sameDefaultTokenValue(existing.get(field), plan.defaultToken[field], field);
+        })) {
+            setDefaultTokenForCharacter(character, existing);
+            journalTouch(manifest, report, 'character', character.id, '_defaulttoken', 'capture');
             return;
         }
-        if (!token) {
-            sendGM(renderList('Bind Failed', ['Select a token on the tabletop first.']));
+        // Keep unowned saved-token properties, including deliberately configured vision.
+        props = Object.assign({}, snapshot.defaultToken || {}, cloneData(plan.defaultToken));
+        // Graphic underscore properties and identity aliases are read-only. Keep all
+        // writable, unowned settings; supply the page parent through its create-time name.
+        Object.keys(props).forEach(function (field) {
+            if (field.charAt(0) === '_' || ['id', 'type', 'subtype', 'cardid'].indexOf(field) !== -1) {
+                delete props[field];
+            }
+        });
+        props.pageid = plan.tokenPageId;
+        props.left = -10000;
+        props.top = -10000;
+        scratch = createObj('graphic', props);
+        if (!scratch) { throw new Error('Could not create a temporary reusable-token graphic.'); }
+        manifest.lastOperation.scratchTokenId = scratch.id;
+        journalTouch(manifest, report, 'graphic', scratch.id, 'defaultToken.capture', 'temporary-create');
+        try {
+            setDefaultTokenForCharacter(character, scratch);
+            journalTouch(manifest, report, 'character', character.id, '_defaulttoken', 'capture');
+        } catch (captureError) {
+            cleanupCapture(manifest, report);
+            throw captureError;
+        }
+    }
+
+    function cleanupCapture(manifest, report) {
+        var operation = manifest && manifest.lastOperation;
+        var id = operation && operation.scratchTokenId;
+        var scratch = id && getObj('graphic', id);
+        if (scratch) {
+            journalTouch(manifest, report, 'graphic', id, 'defaultToken.capture', 'temporary-remove');
+            scratch.remove();
+            if (getObj('graphic', id)) { throw new Error('Temporary capture graphic could not be removed: ' + id); }
+        }
+        if (operation) { delete operation.scratchTokenId; }
+    }
+
+    function applyWritePlan(character, plan, manifest, snapshot, report, done) {
+        var oldPlan = manifest.baseline;
+        var owned = manifest.pending.owned;
+        var sheetChanged = false;
+        Object.keys(plan.character).forEach(function (field) {
+            if (!sameValue(snapshot.character[field], plan.character[field], field)) {
+                journalTouch(manifest, report, 'character', character.id, field, 'set');
+                character.set(field, plan.character[field]);
+            }
+        });
+        Object.keys(plan.attributes).forEach(function (name) {
+            var id = owned.attributes[name];
+            var attr = id && getObj('attribute', id);
+            var values = cloneData(plan.attributes[name]);
+            if (attr) {
+                if (preservesCurrent(name) || name === 'recalc') { delete values.current; }
+                Object.keys(values).forEach(function (field) {
+                    if (attributeValueComparator(plan, snapshot, name)(attr.get(field), values[field], field)) { delete values[field]; }
+                });
+                if (Object.keys(values).length) {
+                    journalTouch(manifest, report, 'attribute', attr.id, name, 'set');
+                    attr.set(values);
+                    if (name !== 'recalc') { sheetChanged = true; }
+                }
+            } else {
+                var attrTouch = journalTouch(manifest, report, 'attribute', null, name, 'create');
+                attr = createObj('attribute', { characterid: character.id, name: name,
+                    current: name === 'recalc' ? 0 : values.current, max: values.max });
+                if (!attr) { throw new Error('Attribute creation failed: ' + name); }
+                owned.attributes[name] = attr.id;
+                attrTouch.id = attr.id;
+                if (name !== 'recalc') { sheetChanged = true; }
+            }
+        });
+        Object.keys(plan.abilities).forEach(function (key) {
+            var ability = owned.abilities[key] && getObj('ability', owned.abilities[key]);
+            if (ability) {
+                var changed = {};
+                Object.keys(plan.abilities[key]).forEach(function (field) {
+                    if (!sameValue(ability.get(field), plan.abilities[key][field], field)) { changed[field] = plan.abilities[key][field]; }
+                });
+                if (Object.keys(changed).length) {
+                    journalTouch(manifest, report, 'ability', ability.id, key, 'set');
+                    ability.set(changed);
+                }
+            } else {
+                var abilityTouch = journalTouch(manifest, report, 'ability', null, key, 'create');
+                ability = createObj('ability', Object.assign({ characterid: character.id }, plan.abilities[key]));
+                if (!ability) { throw new Error('Ability creation failed: ' + key); }
+                owned.abilities[key] = ability.id;
+                abilityTouch.id = ability.id;
+            }
+        });
+        Object.keys(oldPlan && oldPlan.attributes || {}).forEach(function (name) {
+            var id = manifest.owned.attributes[name];
+            if (!hasKey(plan.attributes, name) && id) {
+                journalTouch(manifest, report, 'attribute', id, name, 'remove');
+                getObj('attribute', id).remove();
+                delete owned.attributes[name];
+                if (name !== 'recalc') { sheetChanged = true; }
+            }
+        });
+        Object.keys(oldPlan && oldPlan.abilities || {}).forEach(function (key) {
+            var id = manifest.owned.abilities[key];
+            if (!hasKey(plan.abilities, key) && id) {
+                journalTouch(manifest, report, 'ability', id, key, 'remove');
+                getObj('ability', id).remove();
+                delete owned.abilities[key];
+            }
+        });
+        if (plan.bindToken) {
+            var boundToken = getObj('graphic', plan.token.id);
+            if (!boundToken || (boundToken.get('represents') && boundToken.get('represents') !== character.id)) {
+                throw new Error('Token binding changed after preflight; the encounter token was not overwritten.');
+            }
+            var tokenChanges = {};
+            Object.keys(plan.token.values).forEach(function (field) {
+                if (!sameValue(boundToken.get(field), plan.token.values[field], field)) { tokenChanges[field] = plan.token.values[field]; }
+            });
+            if (Object.keys(tokenChanges).length) {
+                journalTouch(manifest, report, 'graphic', plan.token.id, 'tokenPolicy', 'bind');
+                boundToken.set(tokenChanges);
+            }
+        }
+        captureDefaultToken(character, plan, manifest, snapshot, report);
+        if (sheetChanged && owned.attributes.recalc) {
+            var recalc = getObj('attribute', owned.attributes.recalc);
+            // Ordinary set is silent to workers; ensure a fresh 0 -> 1 request.
+            if (!sameValue(recalc.get('current'), 0)) {
+                journalTouch(manifest, report, 'attribute', recalc.id, 'recalc.current', 'set');
+                recalc.set({ current: 0 });
+            }
+            onSheetWorkerCompleted(done);
+            journalTouch(manifest, report, 'attribute', recalc.id, 'recalc.current', 'setWithWorker');
+            recalc.setWithWorker({ current: 1 });
+        } else { done(); }
+    }
+
+    function inspectRemoved(manifest, report) {
+        var operation = manifest.lastOperation;
+        (operation && operation.touched || []).forEach(function (entry) {
+            if (entry.action === 'remove' && getObj(entry.kind, entry.id)) {
+                reportIssue(report, 'stale', entry.kind + '.' + entry.path, 'removed', entry.id);
+            }
+        });
+    }
+
+    function verifyAndFinish(manifest, report, release) {
+        var pending = manifest.pending;
+        var plan = pending.plan;
+        readSnapshot(manifest.characterId, plan.token && plan.token.id, function (error, snapshot) {
+            if (!release.active()) { return; }
+            try {
+                if (error) { reportIssue(report, 'read-failed', 'character', 'successful readback', error.message); }
+                else {
+                    inspectPlan(plan, { baseline: null, owned: pending.owned }, snapshot, report, 'readback', false);
+                    inspectRemoved(manifest, report);
+                }
+                cleanupCapture(manifest, report);
+                if (!report.issues.length) {
+                    manifest.baseline = cloneData(plan);
+                    delete manifest.baseline.bindToken;
+                    delete manifest.baseline.replaceAvatar;
+                    Object.keys(plan.attributes).forEach(function (name) {
+                        if ((preservesCurrent(name) || name === 'recalc') && snapshot.attributes[name] && snapshot.attributes[name].length === 1) {
+                            manifest.baseline.attributes[name].current = snapshot.attributes[name][0].values.current;
+                        }
+                    });
+                    if (manifest.baseline.token && snapshot.token) {
+                        manifest.baseline.token.values.bar1_value = snapshot.token.values.bar1_value;
+                    }
+                    manifest.owned = cloneData(pending.owned);
+                    manifest.owned.characterFields = Object.keys(plan.character);
+                    manifest.rows = cloneData(plan.rows);
+                    manifest.sourceHandoutId = pending.sourceHandoutId;
+                    manifest.importerVersion = VERSION;
+                    manifest.tokenPageId = plan.tokenPageId || manifest.tokenPageId;
+                    manifest.verifiedAt = new Date().toISOString();
+                    manifest.revision = (manifest.revision || 0) + 1;
+                    delete manifest.pending;
+                    report.status = 'verified';
+                    report.storedObjectsVerified = true;
+                } else { report.status = 'readback-failed'; }
+                manifest.lastOperation.status = report.status;
+                storeReport(report);
+            } catch (finishError) {
+                report.storedObjectsVerified = false;
+                report.status = 'partial-failure';
+                manifest.lastOperation.status = report.status;
+                reportIssue(report, 'verification-error', 'operation', null, finishError.message);
+                storeReport(report);
+            } finally { release(); }
+        });
+    }
+
+    function createManifest(characterId, handoutId) {
+        return { manifestVersion: MANIFEST_VERSION, characterId: characterId, sourceHandoutId: handoutId,
+            importerVersion: VERSION, rows: {}, owned: { characterFields: [], attributes: {}, abilities: {} },
+            baseline: null, revision: 0 };
+    }
+
+    function loadManagedModel(handout, callback) {
+        loadHandoutPayload(handout, function (text) {
+            try {
+                if (!text || text.length > 1000000) { throw new Error('Handout is empty or exceeds the 1 MB import limit.'); }
+                var model = buildModel(tryParsePayload(text));
+                if (hasFatalValidationIssue(model)) { throw new Error(validateModel(model).join(' ')); }
+                callback(null, model);
+            } catch (error) { callback(error); }
+        });
+    }
+
+    function startLifecycle(mode, characterId, handout, msg, options) {
+        var store = lifecycleState();
+        var manifest = characterId && store.characters[characterId];
+        var character = characterId && getObj('character', characterId);
+        var lockKey = characterId || 'create:' + handout.id;
+        var report = newReport(mode, characterId, handout && handout.id || manifest && manifest.sourceHandoutId);
+        var released = false;
+        var commandTimeout;
+        function release() {
+            released = true;
+            clearTimeout(commandTimeout);
+            delete operationLocks[lockKey];
+            if (mode === 'import' && characterId) { delete operationLocks[characterId]; }
+        }
+        release.active = function () { return !released; };
+        function fail(error, partial) {
+            if (released) { return; }
+            report.status = partial ? 'partial-failure' : 'blocked';
+            reportIssue(report, 'operation-error', 'operation', null, error.message);
+            if (manifest && manifest.lastOperation && partial) {
+                manifest.lastOperation.status = report.status;
+                try { cleanupCapture(manifest, report); }
+                catch (cleanupError) { reportIssue(report, 'cleanup-failed', 'defaultToken.capture', null, cleanupError.message); }
+            }
+            storeReport(report);
+            release();
+        }
+        if (operationLocks[lockKey]) { report.status = 'busy'; reportIssue(report, 'locked', 'character', 'one operation', lockKey); storeReport(report); return; }
+        if (characterId && !character) { fail(new Error('Use an existing Character ID.')); return; }
+        if (mode === 'adopt' && manifest) { fail(new Error('Character is already managed.')); return; }
+        if (mode !== 'import' && mode !== 'adopt' && (!manifest || manifest.manifestVersion !== MANIFEST_VERSION)) {
+            fail(new Error('Character is not managed. Explicit adoption is required.')); return;
+        }
+        if (manifest && manifest.pending && mode !== 'audit') {
+            fail(new Error('A prior operation is unverified. Audit it before further mutation.')); return;
+        }
+        operationLocks[lockKey] = true;
+        // Includes the asynchronous handout lookup/read, so abandoned callbacks cannot hold a lock forever.
+        commandTimeout = setTimeout(function () { fail(new Error('Timed out awaiting lifecycle input/readback.'), !!(manifest && manifest.pending)); }, READ_TIMEOUT_MS * 3);
+        if (mode === 'audit') {
+            if (manifest.pending) {
+                report.touched = cloneData(manifest.lastOperation.touched);
+                verifyAndFinish(manifest, report, release);
+            } else {
+                readSnapshot(characterId, manifest.baseline.token && manifest.baseline.token.id, function (error, snapshot) {
+                    if (released) { return; }
+                    try {
+                        if (error) { throw error; }
+                        inspectPlan(manifest.baseline, manifest, snapshot, report, 'readback', false);
+                        inspectRemoved(manifest, report);
+                        report.status = report.issues.length ? 'audit-failed' : 'verified';
+                        report.storedObjectsVerified = !report.issues.length;
+                        storeReport(report);
+                        release();
+                    } catch (auditError) { fail(auditError); }
+                });
+            }
             return;
         }
-
-        hp = getAttrCurrent(resolved.character.id, 'hitpoints_max') ||
-            getAttrCurrent(resolved.character.id, 'npchitpoints_max') ||
-            getAttrCurrent(resolved.character.id, 'hitpoint');
-        ac = getAttrCurrent(resolved.character.id, 'armorclass') ||
-            getAttrCurrent(resolved.character.id, 'npcarmorclass');
-
-        result = configureTokenForCharacter(token, resolved.character, hp, ac, resolved.character.get('name'));
-        if (!result.ok) {
-            sendGM(renderList('Bind Failed', [result.reason]));
-            return;
+        function planAndRun(model) {
+            var plan;
+            var token;
+            try {
+                if (released) { return; }
+                plan = mode === 'bind' ? cloneData(manifest.baseline) : buildWritePlan(model, manifest);
+                delete plan.bindToken;
+                token = (mode === 'import' || mode === 'bind') ? resolveToken(msg, options.tokenId, mode === 'bind' || options.simple) : null;
+                if (options.avatar && !token) { throw new Error('--avatar requires a token.'); }
+                if (token) { addTokenIntent(plan, token, characterId, mode === 'import' || options.avatar); }
+                finishPlan(plan, manifest, characterId);
+            } catch (planError) { fail(planError); return; }
+            function afterRead(error, snapshot) {
+                var mutationStarted = false;
+                if (released) { return; }
+                try {
+                    if (error) { throw error; }
+                    if (mode === 'adopt') {
+                        var rows = adoptRowMap(plan, snapshot);
+                        plan = buildWritePlan(model, { rows: rows });
+                        finishPlan(plan, null, characterId);
+                    }
+                    plan.preservedCurrent = {};
+                    Object.keys(plan.attributes).forEach(function (name) {
+                        if (preservesCurrent(name) && snapshot.attributes[name] && snapshot.attributes[name].length === 1) {
+                            plan.preservedCurrent[name] = true;
+                        }
+                    });
+                    if (mode !== 'import') { inspectPlan(plan, manifest, snapshot, report, 'preflight', mode === 'adopt'); }
+                    report.warnings = model ? validateModel(model) : [];
+                    if (mode === 'import' && !plan.token) {
+                        report.warnings.push('No token selected; Character created without managed token/default-token configuration.');
+                    }
+                    var projectedTouches = Object.keys(plan.character).length + Object.keys(plan.attributes).length +
+                        Object.keys(plan.abilities).length + (plan.bindToken ? 1 : 0) + (plan.defaultToken ? 3 : 0) + 3;
+                    if (manifest && manifest.baseline) {
+                        projectedTouches += Object.keys(manifest.baseline.attributes).filter(function (name) { return !hasKey(plan.attributes, name); }).length;
+                        projectedTouches += Object.keys(manifest.baseline.abilities).filter(function (key) { return !hasKey(plan.abilities, key); }).length;
+                    }
+                    if (projectedTouches > MAX_TOUCHED) { throw new Error('Proposed mutation exceeds the bounded operation journal.'); }
+                    if (report.issues.length) { report.status = 'conflict'; storeReport(report); release(); return; }
+                    if (mode === 'preview') {
+                        report.status = 'preview';
+                        report.plan = plan;
+                        storeReport(report);
+                        release();
+                        return;
+                    }
+                    if (mode === 'import') {
+                        mutationStarted = true;
+                        character = createObj('character', { name: plan.character.name });
+                        if (!character) { throw new Error('Character creation failed.'); }
+                        characterId = character.id;
+                        report.characterId = characterId;
+                        operationLocks[characterId] = true;
+                        manifest = createManifest(characterId, handout.id);
+                        store.characters[characterId] = manifest;
+                        if (plan.token) { plan.token.values.represents = characterId; }
+                        if (plan.defaultToken) { plan.defaultToken.represents = characterId; }
+                    } else if (mode === 'adopt') {
+                        manifest = createManifest(characterId, handout.id);
+                        store.characters[characterId] = manifest;
+                    }
+                    manifest.lastOperation = { operation: mode, startedAt: report.at, status: 'applying', touched: [] };
+                    manifest.pending = { plan: cloneData(plan), owned: cloneData(manifest.owned), sourceHandoutId: handout && handout.id || manifest.sourceHandoutId };
+                    if (mode === 'import') { journalTouch(manifest, report, 'character', characterId, 'character', 'create'); }
+                    mutationStarted = true;
+                    function afterApply() {
+                        if (released) { return; }
+                        manifest.lastOperation.status = 'awaiting-readback';
+                        verifyAndFinish(manifest, report, release);
+                    }
+                    if (mode === 'adopt') {
+                        manifest.pending.owned = snapshotOwned(plan, snapshot);
+                        afterApply();
+                    } else {
+                        applyWritePlan(character, plan, manifest, snapshot, report, afterApply);
+                    }
+                } catch (applyError) { fail(applyError, mutationStarted); }
+            }
+            if (mode === 'import') { afterRead(null, { character: {}, attributes: {}, abilities: [], token: null, defaultToken: null }); }
+            else { readSnapshot(characterId, plan.token && plan.token.id, afterRead); }
         }
+        if (mode === 'bind') { planAndRun(null); }
+        else { loadManagedModel(handout, function (error, model) { if (error) { fail(error); } else { planAndRun(model); } }); }
+    }
 
-        sendGM(renderList('Token Bound', [
-            'Character: ' + resolved.character.get('name'),
-            'Bar 1 set to HP: ' + hp,
-            'Bar 2 set to AC: ' + ac,
-            result.avatarSet ? 'Avatar copied from selected token image.' : 'Avatar not copied: ' + result.avatarReason
-        ]));
+    function parseLifecycleArguments(target) {
+        var options = { tokenId: null, avatar: false };
+        var words = trim(target).split(/\s+/);
+        var positionals = [];
+        words.forEach(function (word, index) {
+            if (word === '--avatar') { options.avatar = true; }
+            else if (word === '--token') {
+                if (options.tokenId || !words[index + 1] || /^--/.test(words[index + 1])) { throw new Error('--token requires one token ID.'); }
+                options.tokenId = words[index + 1];
+            } else if (index && words[index - 1] === '--token') { return; }
+            else if (/^--/.test(word)) { throw new Error('Unknown option: ' + word); }
+            else if (word) { positionals.push(word); }
+        });
+        return { options: options, positionals: positionals };
+    }
+
+    function exportLifecycleReport() {
+        var store = lifecycleState();
+        var handout = store.reportHandoutId && getObj('handout', store.reportHandoutId);
+        if (!store.lastReport) { throw new Error('There is no lifecycle report yet.'); }
+        if (handout && (handout.get('inplayerjournals') || handout.get('controlledby'))) {
+            throw new Error('The report handout was shared manually. Restore GM-only permissions before exporting.');
+        }
+        if (!handout) {
+            handout = createObj('handout', { name: 'D35 Managed Lifecycle — Latest JSON Report', inplayerjournals: '', controlledby: '' });
+            if (!handout) { throw new Error('Could not create report handout.'); }
+            store.reportHandoutId = handout.id;
+        }
+        handout.set('gmnotes', '<pre>' + escapeHtml(JSON.stringify(store.lastReport, null, 2)) + '</pre>');
+        sendGM(renderList('JSON Report Exported', ['GM-only handout id: ' + handout.id]));
+    }
+
+    // Evaluate only arithmetic modifiers, never JavaScript or dice expressions.
+    // Unsupported live modifiers stop the roll rather than being silently lost.
+    function attackMacroSignature(macro) {
+        var hash = 0, i;
+        for (i = 0; i < macro.length; i += 1) { hash = ((hash * 31) + macro.charCodeAt(i)) | 0; }
+        return String(hash >>> 0);
+    }
+
+    function evaluateLiveModifier(text, characterId, depth) {
+        if ((depth || 0) > 12) { return null; }
+        var unknown = false;
+        text = String(text).replace(/\[[^\]]*\]/g, '').replace(/@\{([^}]+)\}/g, function (all, name) {
+            // Cross-character references and selected/target references are not
+            // local attribute names. They cannot be evaluated as local numbers.
+            if (name.indexOf('|') !== -1) { unknown = true; return '0'; }
+            var value = getAttrByName(characterId, name);
+            if (value === undefined || value === null || value === '') { return '0'; }
+            var number = evaluateLiveModifier(String(value), characterId, (depth || 0) + 1);
+            if (number === null) { unknown = true; return '0'; }
+            return '(' + number + ')';
+        }).replace(/\s+/g, '');
+        if (unknown || !text) { return null; }
+        var tokens = text.match(/(?:\d+(?:\.\d+)?|\.\d+)|floor|ceil|round|abs|[()+\-*/]/g) || [];
+        if (tokens.join('') !== text) { return null; }
+        var index = 0;
+        function atom() {
+            var token = tokens[index++];
+            if (token === '+' || token === '-') { return (token === '-' ? -1 : 1) * atom(); }
+            if (token === '(') { var nested = sum(); if (tokens[index++] !== ')') { throw new Error('parenthesis'); } return nested; }
+            if (/^(floor|ceil|round|abs)$/.test(token || '')) {
+                if (tokens[index++] !== '(') { throw new Error('function'); }
+                var argument = sum(); if (tokens[index++] !== ')') { throw new Error('parenthesis'); }
+                return Math[token](argument);
+            }
+            if (!token || !/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(token)) { throw new Error('number'); }
+            return Number(token);
+        }
+        function product() { var value = atom(); while (tokens[index] === '*' || tokens[index] === '/') { var op = tokens[index++], next = atom(); value = op === '*' ? value * next : value / next; } return value; }
+        function sum() { var value = product(); while (tokens[index] === '+' || tokens[index] === '-') { var op = tokens[index++], next = product(); value = op === '+' ? value + next : value - next; } return value; }
+        try { var result = sum(); return index === tokens.length && isFinite(result) ? result : null; }
+        catch (error) { return null; }
+    }
+
+    function compactLiveAttackMacro(macro, characterId) {
+        function compactExpression(expression) {
+            var rebuilt = '', position = 0, nesting = 0, begin = -1, cursor;
+            for (cursor = 0; cursor < expression.length; cursor += 1) {
+                if (expression.charAt(cursor) === '(') { if (nesting === 0) { begin = cursor; } nesting += 1; }
+                if (expression.charAt(cursor) === ')' && nesting > 0) {
+                    nesting -= 1;
+                    if (nesting === 0) {
+                        rebuilt += expression.slice(position, begin) + '(' + compactExpression(expression.slice(begin + 1, cursor)) + ')';
+                        position = cursor + 1;
+                    }
+                }
+            }
+            expression = rebuilt + expression.slice(position);
+            var terms = [], start = 0, depth = 0, label = false, i;
+            for (i = 0; i < expression.length; i += 1) {
+                var ch = expression.charAt(i);
+                if (ch === '[') { label = true; } else if (ch === ']') { label = false; }
+                if (!label) {
+                    if (ch === '(' || ch === '{') { depth += 1; }
+                    if (ch === ')' || ch === '}') { depth -= 1; }
+                    if (ch === '+' && depth === 0) { terms.push(trim(expression.slice(start, i))); start = i + 1; }
+                }
+            }
+            terms.push(trim(expression.slice(start)));
+            terms = terms.map(function (term) {
+                if (!term) { return ''; }
+                var value = evaluateLiveModifier(term, characterId, 0);
+                if (value === 0) { return ''; }
+                if (value !== null) {
+                    // sendChat does not provide the originating Ability's
+                    // attribute-expansion context. Emit real numbers, with the
+                    // original component labels, rather than raw @{id|attr}.
+                    var labels = (term.match(/\[[^\]]*\]/g) || []).join('')
+                        .replace(/\[size\]/g, '[Size]').replace(/\[Weapon Dmg Ability\]/g, '[Strength damage]');
+                    if (term.indexOf('@{str-mod}') !== -1) { labels = labels.replace(/\[Ability\]/g, '[Strength]'); }
+                    if (term.indexOf('@{dex-mod}') !== -1) { labels = labels.replace(/\[Ability\]/g, '[Dexterity]'); }
+                    return String(value) + labels;
+                }
+                if (/@\{|%\{|\?\{/.test(term)) {
+                    throw new Error('Cannot evaluate attack modifier ' + term + '. Use a numeric value or supported local arithmetic on the sheet, then roll again.');
+                }
+                return term;
+            }).filter(Boolean);
+            return terms.join(' + ').replace(/\+\s+-/g, '- ') || '0';
+        }
+        return macro.replace(/\[\[([\s\S]*?)\]\]/g, function (all, expression) {
+            return '[[ ' + compactExpression(expression) + ' ]]';
+        });
+    }
+
+    function rollManagedAttack(msg, target) {
+        var args = trim(target).split(/\s+/);
+        var character = args.length === 3 && getObj('character', args[0]);
+        if (!character) { throw new Error('Attack requires a Character ID and attack key.'); }
+        var controllers = String(character.get('controlledby') || '').split(',');
+        if (!playerIsGM(msg.playerid) && controllers.indexOf('all') === -1 && controllers.indexOf(msg.playerid) === -1) {
+            throw new Error('You must control this Character to roll its attacks.');
+        }
+        var manifest = lifecycleState().characters[character.id];
+        var key = decodeURIComponent(args[1]);
+        var macro = manifest && !manifest.pending && manifest.baseline && manifest.baseline.attackMacros && manifest.baseline.attackMacros[key];
+        if (!macro) { throw new Error('No verified managed attack exists for that key. Update the Character first.'); }
+        if (args[2] !== attackMacroSignature(macro)) { throw new Error('This attack action is outdated. Use the current Character token action.'); }
+        compactLiveAttackMacro(macro, character.id).split('\n').forEach(function (line) {
+            sendChat('character|' + character.id, line);
+        });
     }
 
     function showHelp() {
-        sendGM(
-            '<div style="border:1px solid #444;background:#fff;padding:8px;">' +
-            '<div style="font-weight:bold;margin-bottom:6px;">' + escapeHtml(SCRIPT_NAME + ' v' + VERSION) + '</div>' +
-            '<div><code>' + escapeHtml(PING_COMMAND) + '</code> checks that the Roll20 API listener is hearing commands.</div>' +
-            '<div><code>' + escapeHtml(COMMAND + ' validate Handout Name') + '</code></div>' +
-            '<div><code>' + escapeHtml(COMMAND + ' import Handout Name') + '</code></div>' +
-            '<div><code>' + escapeHtml(COMMAND + ' Handout Name') + '</code> (same as import)</div>' +
-            '<div><code>' + escapeHtml(COMMAND + ' bind Character Name') + '</code> with a token selected</div>' +
-            '<div style="margin-top:8px;">Aliases: <code>!d35importer</code> and <code>!d35</code>.</div>' +
-            '<div style="margin-top:8px;">If you select a token before running import, the script will try to bind it as the character&apos;s default token, copy its image to the avatar, and set Bar 1 = HP and Bar 2 = AC.</div>' +
-            '</div>'
-        );
+        sendGM(renderList(SCRIPT_NAME + ' v' + VERSION, [
+            PING_COMMAND + ' — API listener check',
+            COMMAND + ' validate <handout name or id>',
+            COMMAND + ' import <handout name or id> [--token <id>] [--avatar] (create is an alias)',
+            '!D35 <handout name or id> — select one token; creates and verifies a managed Character, portrait, bars, default token and actions',
+            COMMAND + ' preview <character-id> <handout-id>',
+            COMMAND + ' update <character-id> <handout-id>',
+            COMMAND + ' refresh <handout name or id> — update the managed Character linked to the selected token',
+            COMMAND + ' adopt <character-id> <handout-id> — claim only matching mapped objects; no sheet writes',
+            COMMAND + ' bind <character-id> [--token <id>] [--avatar]',
+            COMMAND + ' audit <character-id>',
+            COMMAND + ' report — export latest machine-readable JSON report',
+            'Import/bind accept exactly one selected token when --token is omitted. New imports copy its image to the Character avatar automatically. Bind preserves existing portraits unless --avatar is supplied.',
+            'Aliases: !d35importer and !d35. Managed commands require GM privileges.'
+        ]));
     }
 
     function handleInput(msg) {
         var matchedCommand;
         var parsed;
-        var resolved;
-
-        if (msg.type !== 'api') {
-            return;
-        }
-
+        var args;
+        var characterId;
+        var handoutId;
+        if (msg.type !== 'api') { return; }
         matchedCommand = getMatchedCommand(msg.content);
-        if (!matchedCommand) {
-            return;
-        }
-
-        if (matchedCommand === PING_COMMAND) {
-            sendGM(renderList('API Listener Check', [
-                SCRIPT_NAME + ' heard ' + PING_COMMAND + '.',
-                'Use ' + COMMAND + ' help to show importer commands.'
-            ]));
-            return;
-        }
-
+        if (!matchedCommand) { return; }
+        if (matchedCommand === PING_COMMAND) { sendGM(renderList('API Listener Check', [SCRIPT_NAME + ' heard ' + PING_COMMAND + '.'])); return; }
         parsed = parseCommand(msg.content, matchedCommand);
-        if (parsed.verb === 'help') {
-            showHelp();
+        if (parsed.verb === 'help') { showHelp(); return; }
+        if (parsed.verb === 'roll') {
+            try { rollManagedAttack(msg, parsed.target); }
+            catch (rollError) { sendGM(renderList('Attack Failed', [rollError.message])); }
             return;
         }
-        if (parsed.verb === 'bind') {
-            bindSelectedTokenToCharacter(parsed.target, msg);
-            return;
-        }
-        if (!parsed.target) {
-            showHelp();
-            return;
-        }
-
-        resolveHandout(parsed.target, function (resolvedResult) {
-            resolved = resolvedResult;
-            if (resolved.info) {
-                sendGM(renderList('Import Notice', [resolved.info]));
+        if (!playerIsGM(msg.playerid)) { sendGM(renderList('Command Failed', ['GM authorization is required.'])); return; }
+        try {
+            if (parsed.verb === 'report') { exportLifecycleReport(); return; }
+            args = parseLifecycleArguments(parsed.target);
+            args.options.simple = !!parsed.simple;
+            if (parsed.simple) {
+                // Validate selection before reading notes or creating objects.
+                resolveToken(msg, null, true);
+                args.options.tokenId = null;
+                args.options.avatar = false;
             }
-            if (resolved.error) {
-                sendGM(renderList('Command Failed', [resolved.error]));
+            if (parsed.verb === 'refresh') {
+                if (args.options.avatar || args.options.tokenId) { throw new Error('Refresh uses exactly one selected token, without token options.'); }
+                var selectedToken = resolveToken(msg, null, true);
+                characterId = selectedToken.get('represents');
+                if (!characterId) { throw new Error('The selected token must already represent a managed Character. Refresh never creates a Character.'); }
+                resolveHandout(trim(parsed.target), function (resolved) {
+                    if (resolved.error) { sendGM(renderList('Command Failed', [resolved.error])); }
+                    else { startLifecycle('update', characterId, resolved.handout, msg, args.options); }
+                });
                 return;
             }
-
-            if (parsed.verb === 'validate') {
-                validateHandout(resolved.handout);
+            if (parsed.verb === 'audit' || parsed.verb === 'bind' || parsed.verb === 'preview' || parsed.verb === 'update' || parsed.verb === 'adopt') {
+                characterId = args.positionals[0];
+                if (!characterId) { throw new Error('An explicit Character ID is required.'); }
+                if (parsed.verb === 'audit' || parsed.verb === 'bind') {
+                    if (args.positionals.length !== 1) { throw new Error('Expected exactly one Character ID.'); }
+                    if (parsed.verb === 'audit' && (args.options.avatar || args.options.tokenId)) { throw new Error('Audit does not accept token options.'); }
+                    startLifecycle(parsed.verb, characterId, null, msg, args.options);
+                    return;
+                }
+                if (args.positionals.length !== 2 || args.options.avatar || args.options.tokenId) { throw new Error('Expected <character-id> <handout-id>, without token options.'); }
+                handoutId = getObj('handout', args.positionals[1]);
+                if (!handoutId) { throw new Error('Use an existing handout ID.'); }
+                startLifecycle(parsed.verb, characterId, handoutId, msg, args.options);
                 return;
             }
-
-            importModelFromHandout(resolved.handout, msg);
-        });
+            resolveHandout(!parsed.simple && (args.options.tokenId || args.options.avatar) ? args.positionals.join(' ') : trim(parsed.target), function (resolved) {
+                if (resolved.error) { sendGM(renderList('Command Failed', [resolved.error])); return; }
+                if (parsed.verb === 'validate') { validateHandout(resolved.handout); }
+                else { startLifecycle('import', null, resolved.handout, msg, args.options); }
+            }, !!parsed.simple);
+        } catch (error) { sendGM(renderList('Command Failed', [error.message])); }
     }
+
 
     function registerEventHandlers() {
         on('chat:message', handleInput);

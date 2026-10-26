@@ -1,5 +1,5 @@
 Temple Adept CR 4
-Female human cleric 4
+Male or female human cleric 4
 LG Medium humanoid (human)
 Divine fixture
 Init +0; Senses Listen +4, Spot +4
@@ -17,10 +17,10 @@ Space 5 ft.; Reach 5 ft.
 Base Atk +3; Grp +4
 Special Actions turn undead 5/day (+2, 2d6+6, 4th)
 Cleric Spells Prepared (CL 4th):
-2nd-bull's strength, hold person (DC 15), spiritual weaponD
+2nd-bull's strength, hold person (DC 15); spiritual weaponD
 1st-bless, divine favor, protection from evilD, shield of faith
 0-create water, detect magic, guidance, light, resistance
-D: Domain spell. Domains Good, War
+Domains Good, War
 
 Abilities Str 13, Dex 10, Con 14, Int 12, Wis 16, Cha 14
 SQ aura
@@ -28,3 +28,9 @@ Feats Combat Casting, Extra Turning, Weapon Focus (heavy mace)
 Skills Concentration +9, Heal +10, Knowledge (religion) +8, Spellcraft +8
 Combat Gear scroll of remove paralysis, potion of cure moderate wounds
 Possessions masterwork heavy mace, chainmail, heavy steel shield, holy symbol
+D Domain spell.
+Aura (Ex) The cleric has a good aura.
+Cleric Spellcasting (Ex) The cleric prepares divine spells.
+Good Domain (Ex) The cleric casts good spells at +1 caster level.
+Spontaneous Casting (Ex) The cleric can lose prepared spells to cast cure spells.
+Turn Undead (Su) The cleric turns undead as a 4th-level cleric.

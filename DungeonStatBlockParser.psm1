@@ -1,4 +1,4 @@
-$script:ParserVersion = '0.1.1'
+$script:ParserVersion = '0.2.0'
 
 $script:SizeMap = [ordered]@{
     Colossal   = -8
@@ -18,6 +18,19 @@ $script:AlignmentCodes = @(
     'True Neutral', 'Neutral', 'Chaotic Neutral', 'Lawful Evil', 'Neutral Evil', 'Chaotic Evil',
     'Usually', 'Always', 'Often'
 )
+
+$script:FeatCategories = @(
+    'General', 'Fighter', 'Metamagic', 'Item Creation', 'Epic', 'Psionic',
+    'Racial', 'Tactical', 'Divine', 'Wild', 'Vile', 'Exalted', 'Reserve',
+    'Ambush', 'Luck', 'Heritage', 'Draconic', 'Incarnum', 'Style', 'Ceremony'
+)
+
+function Test-IsFeatCategory {
+    param([string]$Category)
+
+    $clean = (ConvertTo-PlainText $Category)
+    return @($script:FeatCategories | Where-Object { $_ -ieq $clean }).Count -gt 0
+}
 
 $script:ReferenceStarters = @(
     'Expanded Psionics Handbook',
@@ -322,7 +335,14 @@ function Get-DocxParagraphs {
         $paragraphNodes = $xml.SelectNodes('//w:body/w:p', $ns)
         $paragraphs = New-Object System.Collections.Generic.List[string]
         foreach ($paragraph in $paragraphNodes) {
-            $textParts = $paragraph.SelectNodes('.//w:t', $ns) | ForEach-Object { $_.InnerText }
+            $textParts = $paragraph.SelectNodes('.//w:t | .//w:tab | .//w:br | .//w:cr', $ns) | ForEach-Object {
+                if ($_.LocalName -in @('tab', 'br', 'cr')) {
+                    ' '
+                }
+                else {
+                    $_.InnerText
+                }
+            }
             $text = ConvertTo-PlainText (($textParts -join ''))
             if (-not [string]::IsNullOrWhiteSpace($text)) {
                 $paragraphs.Add($text)
@@ -341,6 +361,133 @@ function Get-DocxParagraphs {
     }
     finally {
         $zip.Dispose()
+    }
+}
+
+function Get-DocxParagraphRecords {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "DOCX file not found: $Path"
+    }
+
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        $entry = $zip.GetEntry('word/document.xml')
+        if ($null -eq $entry) {
+            throw "word/document.xml not found inside $Path"
+        }
+
+        $reader = [System.IO.StreamReader]::new($entry.Open())
+        try {
+            $xml = [xml]$reader.ReadToEnd()
+        }
+        finally {
+            $reader.Dispose()
+        }
+
+        $ns = [System.Xml.XmlNamespaceManager]::new($xml.NameTable)
+        $ns.AddNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main')
+        $records = New-Object System.Collections.Generic.List[object]
+        $paragraphNumber = 0
+
+        foreach ($paragraph in $xml.SelectNodes('//w:body/w:p', $ns)) {
+            $paragraphNumber++
+            $runs = New-Object System.Collections.Generic.List[object]
+            foreach ($run in $paragraph.SelectNodes('.//w:r', $ns)) {
+                $textParts = $run.SelectNodes('.//w:t | .//w:tab | .//w:br | .//w:cr', $ns) | ForEach-Object {
+                    if ($_.LocalName -in @('tab', 'br', 'cr')) { ' ' } else { $_.InnerText }
+                }
+                $runText = ($textParts -join '')
+                if (-not $runText) {
+                    continue
+                }
+
+                $boldNode = $run.SelectSingleNode('./w:rPr/w:b', $ns)
+                $italicNode = $run.SelectSingleNode('./w:rPr/w:i', $ns)
+                $isBold = $null -ne $boldNode -and $boldNode.GetAttribute('val', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main') -notin @('0', 'false', 'off')
+                $isItalic = $null -ne $italicNode -and $italicNode.GetAttribute('val', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main') -notin @('0', 'false', 'off')
+                $runs.Add([pscustomobject][ordered]@{
+                    Text = $runText
+                    Bold = $isBold
+                    Italic = $isItalic
+                })
+            }
+
+            $text = ConvertTo-PlainText (($runs | ForEach-Object { $_.Text }) -join '')
+            if (-not $text -or $text -match '^(Tab|Page)\s+\d+$') {
+                continue
+            }
+
+            $textRuns = @($runs | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Text) })
+            $leadingBold = New-Object System.Text.StringBuilder
+            foreach ($run in $textRuns) {
+                if (-not $run.Bold) {
+                    break
+                }
+                [void]$leadingBold.Append($run.Text)
+            }
+
+            $expanded = @(Expand-CompoundParagraphs -Paragraphs @($text))
+            foreach ($part in $expanded) {
+                $preserveFormatting = $expanded.Count -eq 1
+                $records.Add([pscustomobject][ordered]@{
+                    Text = $part
+                    SourceKind = 'docx'
+                    ParagraphNumber = $paragraphNumber
+                    Runs = $(if ($preserveFormatting) { @($runs | ForEach-Object { $_ }) } else { @() })
+                    LeadingBoldText = $(if ($preserveFormatting) { ConvertTo-PlainText $leadingBold.ToString() } else { '' })
+                    IsBold = $preserveFormatting -and $textRuns.Count -gt 0 -and @($textRuns | Where-Object { -not $_.Bold }).Count -eq 0
+                    IsItalic = $preserveFormatting -and $textRuns.Count -gt 0 -and @($textRuns | Where-Object { -not $_.Italic }).Count -eq 0
+                })
+            }
+        }
+
+        return @($records | ForEach-Object { $_ })
+    }
+    finally {
+        $zip.Dispose()
+    }
+}
+
+function Get-TextParagraphRecords {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $paragraphs = Get-TextParagraphs -Path $Path
+    $records = New-Object System.Collections.Generic.List[object]
+    $number = 0
+    foreach ($paragraph in $paragraphs) {
+        $number++
+        $records.Add([pscustomobject][ordered]@{
+            Text = $paragraph
+            SourceKind = 'text'
+            ParagraphNumber = $number
+            Runs = @()
+            LeadingBoldText = ''
+            IsBold = $false
+            IsItalic = $false
+        })
+    }
+    return @($records | ForEach-Object { $_ })
+}
+
+function Get-StatBlockParagraphRecords {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    switch ([System.IO.Path]::GetExtension($Path).ToLowerInvariant()) {
+        '.docx' { return Get-DocxParagraphRecords -Path $Path }
+        '.txt' { return Get-TextParagraphRecords -Path $Path }
+        default { throw "Unsupported stat block file type. Supported types: .docx, .txt" }
     }
 }
 
@@ -375,6 +522,20 @@ function Get-TextParagraphs {
         } |
         ForEach-Object { $_ }
     )
+}
+
+function Normalize-FeatListText {
+    param([string]$Text)
+
+    $clean = ConvertTo-PlainText $Text
+    if (-not $clean) {
+        return ''
+    }
+
+    # Dungeon-style stat blocks use B or a Unicode superscript B to mark bonus
+    # feats. DOCX extraction can preserve either form, so remove only a
+    # trailing marker immediately before a top-level list separator.
+    return ($clean -replace '(?<=[A-Za-z0-9\)])[B\u1D2E](?=\s*(?:,|$))', '')
 }
 
 function Get-StatBlockParagraphs {
@@ -550,7 +711,7 @@ function Split-EmbeddedHeadingLine {
         'Atk Options ',
         'Special Actions ',
         'Combat Gear ',
-        'Abilities ',
+        '(?<!Spell-Like )(?<!Psi-Like )Abilities ',
         'SQ ',
         'Feats ',
         'Skills ',
@@ -566,6 +727,14 @@ function Split-EmbeddedHeadingLine {
     foreach ($pattern in $secondaryPatterns) {
         foreach ($match in [regex]::Matches($clean, $pattern)) {
             if ($match.Index -le 0) {
+                continue
+            }
+            if ($pattern -eq 'AC\*? ' -and $clean -match '^AC\b') { continue }
+
+            $prefix = $clean.Substring(0, $match.Index)
+            $openParentheses = ([regex]::Matches($prefix, '\(')).Count
+            $closeParentheses = ([regex]::Matches($prefix, '\)')).Count
+            if ($openParentheses -gt $closeParentheses) {
                 continue
             }
 
@@ -639,7 +808,11 @@ function Parse-IdentityClasses {
         return [pscustomobject]$result
     }
 
-    $clean = $clean -replace '^(Male and female|Female and male|Male|Female)\s+', ''
+    $clean = $clean -replace '^(Male (?:and|or) female|Female (?:and|or) male|Male|Female)\s+', ''
+    # A trailing parenthetical can identify a deity, affiliation, or other
+    # annotation after the final class level (for example, favored soul 3
+    # (Rudd)). It is not part of the class name.
+    $clean = $clean -replace '(?<=\d)\s+\([^)]*\)\s*$', ''
     $segments = @($clean -split '/')
     $classes = New-Object System.Collections.Generic.List[object]
     $raceText = ''
@@ -709,6 +882,7 @@ function Test-IsHeadingLine {
         '^hp\b',
         '^Immune\b',
         '^Resist\b',
+        '^SR\b',
         '^Fort\b',
         '^Weakness',
         '^Sp(?:d|eed)\b',
@@ -719,11 +893,13 @@ function Test-IsHeadingLine {
         '^Atk Options\b',
         '^Special Actions\b',
         '^Combat Gear\b',
+        '^(?:[A-Za-z][A-Za-z ''/-]+?\s+)?(?:Spell-Like Abilities|Psi-Like Abilities|Psionics|Powers Known|Imbued Spells|Spells Prepared/Known|Spells Prepared|Spells Known)\b',
         '^Spells?\b',
         '^Domains\b',
         '^Prohibited Schools\b',
         '^Spell-Like Abilities\b',
         '^Psi-Like Abilities\b',
+        '^Psionics\s*\(CL\b',
         '^Imbued Spells\b',
         '^Powers Known\b',
         '^Power Points\b',
@@ -752,7 +928,7 @@ function Parse-Header {
         Remainder = ''
     }
 
-    if ($Line -match '^(?<name>.+?)\s+CR\s+(?<cr>\d+(?:/\d+)?)(?<rest>.*)$') {
+    if ($Line -match '^(?<name>.+?)\s+CR\s+(?<cr>\d+(?:/\d+)?|[-—])(?<rest>.*)$') {
         $result.Name = (ConvertTo-PlainText $Matches.name)
         $result.CR = (ConvertTo-PlainText $Matches.cr)
         $result.Remainder = (ConvertTo-PlainText $Matches.rest)
@@ -878,7 +1054,7 @@ function Parse-IdentityBlock {
             $info.RaceText = $classData.RaceText
         }
         else {
-            $info.RaceText = (ConvertTo-PlainText ($info.IdentityLine -replace '^(Male and female|Female and male|Male|Female)\s+', ''))
+            $info.RaceText = (ConvertTo-PlainText ($info.IdentityLine -replace '^(Male (?:and|or) female|Female (?:and|or) male|Male|Female)\s+', ''))
         }
     }
 
@@ -1123,7 +1299,7 @@ function Parse-AttackPart {
         Notes = ''
     }
 
-    if ($clean -match '^(?<prefix>.+?)\s+(?<bonus>[+\-]?\d+(?:/[+\-]?\d+)*)\s*\((?<damage>[^)]+)\)(?<notes>.*)$') {
+    if ($clean -match '^(?<prefix>.+?)\s+(?<bonus>[+\-]?\d+(?:/[+\-]?\d+)*)(?:\s+each)?\s*\((?<damage>[^)]+)\)(?<notes>.*)$') {
         $prefix = (ConvertTo-PlainText $Matches.prefix)
         $entry.Name = $prefix
         $entry.Damage = (ConvertTo-PlainText $Matches.damage)
@@ -1172,7 +1348,7 @@ function Parse-AttackLine {
 
     $prefix = if ($Category -eq 'Melee') { '^Melee\*?\s+' } else { '^Ranged\*?\s+' }
     $body = $Line -replace $prefix, ''
-    $parts = Split-TopLevel -Text $body -Delimiters @(' and ', ' or ')
+    $parts = Split-TopLevel -Text $body -Delimiters @(' and ', ', or ', ' or ', ', ')
     $entries = foreach ($part in $parts) {
         Parse-AttackPart -Text $part -Category $Category
     }
@@ -1184,8 +1360,10 @@ function ConvertTo-NormalizedSpellName {
     param([string]$Name)
 
     $clean = ConvertTo-PlainText $Name
+    $clean = $clean -creplace '(?<=[a-z\)])D$', ''
     $clean = $clean -replace '\([^)]*\)', ''
     $clean = $clean -replace '\bDC\s+\d+\b', ''
+    $clean = $clean -creplace '(?<=[a-z\)])[DS](?=\s*$)', ''
     $clean = $clean -replace '[!''’]', ''
     $clean = $clean -replace '\s+', ' '
     $clean = $clean.Trim(' ', ',', ';')
@@ -1265,16 +1443,20 @@ function Parse-SpellHeaderLine {
         InlineText = ''
     }
 
-    if ($Line -match '^(?:(?<class>[A-Za-z][A-Za-z ''/-]+?)\s+)?(?<heading>Spell-Like Abilities|Psi-Like Abilities|Powers Known|Imbued Spells|Spells Prepared/Known|Spells Prepared|Spells Known)\s*(?<paren>\([^)]*\))?:?\s*(?<tail>.*)$') {
+    if ($Line -match '^(?:(?<class>[A-Za-z][A-Za-z ''/-]+?)\s+)?(?<heading>Spell-Like Abilities|Psi-Like Abilities|Psionics|Powers Known|Imbued Spells|Spells Prepared/Known|Spells Prepared|Spells Known)\s*(?<paren>\([^)]*\))?:?\s*(?<tail>.*)$') {
         $classPrefix = ConvertTo-PlainText $Matches['class']
         $baseHeading = ConvertTo-PlainText $Matches.heading
+        if ($baseHeading -eq 'Psionics') {
+            $baseHeading = 'Psi-Like Abilities'
+        }
+        $inlineText = ConvertTo-PlainText $Matches['tail']
         $result.Heading = (("$classPrefix $baseHeading").Trim())
         $result.Track = Get-CastingTrack -Identity $Identity -SpellHeading $result.Heading -HeaderRemainder $Matches.paren
         $paren = ''
         if ($Matches.paren) {
             $paren = $Matches.paren.Trim('(', ')')
         }
-        if ($paren -match 'CL\s+(?<cl>[^,]+)') {
+        if ($paren -match 'CL\s+(?<cl>[^,;]+)') {
             $result.CasterLevel = (ConvertTo-PlainText $Matches.cl)
         }
         if ($paren -match 'melee touch\s+(?<mt>[+\-]?\d+)') {
@@ -1283,14 +1465,17 @@ function Parse-SpellHeaderLine {
         if ($paren -match 'ranged touch\s+(?<rt>[+\-]?\d+)') {
             $result.RangedTouch = $Matches.rt
         }
-        $result.InlineText = (ConvertTo-PlainText $Matches['tail'])
+        $result.InlineText = $inlineText
     }
 
     return [pscustomobject]$result
 }
 
 function Parse-UsageEntries {
-    param([string]$Text)
+    param(
+        [string]$Text,
+        [pscustomobject]$Header
+    )
 
     $normalized = ConvertTo-PlainText $Text
     if (-not $normalized) {
@@ -1311,14 +1496,23 @@ function Parse-UsageEntries {
         }
 
         if ($piece -match '^(?<usage>At will|Constant|\d+/\w+|\d+/day|\d+/round|\d+/week|\d+/month)-(?<body>.+)$') {
+            $usage = ConvertTo-PlainText $Matches.usage
             $spellItems = Split-TopLevel -Text $Matches.body -Delimiters @(', ')
             foreach ($spellItem in $spellItems) {
+                $dc = ''
+                if ($spellItem -match '\(DC\s*(?<dc>\d+)\)') {
+                    $dc = $Matches.dc
+                }
+                $entryCasterLevel = $(if ($Header) { $Header.CasterLevel } else { '' })
+                if ($spellItem -match '\(CL\s+(?<cl>[^)]+)\)') { $entryCasterLevel = $Matches.cl }
                 $entries.Add([pscustomobject]@{
                     Kind = 'SpellLike'
-                    Usage = (ConvertTo-PlainText $Matches.usage)
+                    Usage = $usage
                     Name = ConvertTo-NormalizedSpellName $spellItem
                     Raw = (ConvertTo-PlainText $spellItem)
-                    SaveDC = ''
+                    SaveDC = $dc
+                    CasterLevel = $entryCasterLevel
+                    Heading = $(if ($Header) { $Header.Heading } else { 'Spell-Like Abilities' })
                     MatchedMacro = ''
                     MatchedMacroPath = ''
                 })
@@ -1346,11 +1540,24 @@ function Parse-SpellLevelEntries {
         $allLines.Add((ConvertTo-PlainText $line))
     }
 
-    if ($Header.Heading -match 'Spell-Like|Psi-Like') {
-        return Parse-UsageEntries -Text (($allLines -join ' '))
+    $normalizedLevelLines = New-Object System.Collections.Generic.List[string]
+    foreach ($sourceLine in $allLines) {
+        foreach ($levelLine in [regex]::Split(
+            $sourceLine,
+            '\s+(?=\d+(?:st|nd|rd|th)?(?:\s*\([^)]+\))?\s*[-:])'
+        )) {
+            $cleanLevelLine = ConvertTo-PlainText $levelLine
+            if ($cleanLevelLine) {
+                $normalizedLevelLines.Add($cleanLevelLine)
+            }
+        }
     }
 
-    foreach ($line in $allLines) {
+    if ($Header.Heading -match 'Spell-Like|Psi-Like') {
+        return Parse-UsageEntries -Text (($allLines -join ' ')) -Header $Header
+    }
+
+    foreach ($line in $normalizedLevelLines) {
         if (-not $line) {
             continue
         }
@@ -1358,7 +1565,7 @@ function Parse-SpellLevelEntries {
         if ($line -match '^(?<level>\d+)(?:st|nd|rd|th)?(?:\s*\((?<slots>[^)]+)\))?\s*[-:]\s*(?<spells>.+)$') {
             $level = [int]$Matches.level
             $slots = (ConvertTo-PlainText $Matches['slots'])
-            $spellItems = Split-TopLevel -Text $Matches.spells -Delimiters @(', ')
+            $spellItems = Split-TopLevel -Text $Matches.spells -Delimiters @(', ', '; ')
             foreach ($spellItem in $spellItems) {
                 $dc = ''
                 $prep = ''
@@ -1506,6 +1713,314 @@ function Get-SkillAbilityExpression {
     }
 }
 
+function ConvertTo-ReferenceMatchKey {
+    param([string]$Name)
+
+    $clean = ConvertTo-PlainText $Name
+    $clean = $clean -replace '\(\s*DC\s+\d+\s*\)', ''
+    $clean = $clean -replace '\(\s*\d+\s*\)$', ''
+    $clean = $clean -creplace '(?<=[a-z\)])[DS]$', ''
+    $clean = $clean -replace '\s+(?:D|S|\[D\]|\[S\]|\*)$', ''
+    $clean = $clean -replace "'", ''
+    $clean = $clean.Replace([string][char]0x2019, '')
+    $clean = $clean -replace '[^A-Za-z0-9]+', ' '
+    return $clean.Trim().ToLowerInvariant()
+}
+
+function Test-IsUpperStatLine {
+    param([string]$Line)
+
+    return $Line -match '^(?:Init|Aura|Languages|AC|hp|Immune|Resist|Fort|Weakness(?:es)?|Spd|Speed|Melee|Ranged|Space|Base Atk|Atk Options|Special Actions|Combat Gear|Spell-Like Abilities|Psi-Like Abilities|Psionics|Powers Known|Imbued Spells|Spells Prepared/Known|Spells Prepared|Spells Known|Domains|Prohibited Schools|Abilities|SQ|Feats|Skills|Possessions|Spellbook)\b'
+}
+
+function Test-IsLowerEntryStart {
+    param(
+        [pscustomobject]$Record,
+        [bool]$StatisticsSeen
+    )
+
+    if (-not $StatisticsSeen -or -not $Record -or -not $Record.Text) {
+        return $false
+    }
+    if ($Record.Text -eq 'Spell Reference' -or (Test-IsUpperStatLine -Line $Record.Text)) {
+        return $false
+    }
+    if ($Record.SourceKind -eq 'docx' -and $Record.LeadingBoldText) {
+        return $true
+    }
+    return $Record.Text -match '^.+?(?:\s*\[[^\]]+\]|\s+\((?:Ex|Su|Sp|Ps)\))\s+.+$' -or
+        $Record.Text -match '^Skills\s+\D' -or
+        $Record.Text -match '^[A-Z][A-Za-z0-9'' -]{1,80}\s+(?:-|:|—)\s+.+$' -or
+        $Record.Text -cmatch '^[A-Z][A-Za-z0-9''+() -]{1,80}?\s+(?:The|A|An|Full|When|Once|If|This)\b.+$'
+}
+
+function New-LowerEntryFromRecord {
+    param(
+        [pscustomobject]$Record,
+        [System.Collections.Generic.List[string]]$Warnings
+    )
+
+    $raw = ConvertTo-PlainText $Record.Text
+    $name = ''
+    $type = ''
+    $typeStyle = 'untyped'
+    $body = ''
+
+    if ($Record.SourceKind -eq 'docx' -and $Record.LeadingBoldText) {
+        $namePart = ConvertTo-PlainText $Record.LeadingBoldText
+        $body = ConvertTo-PlainText $raw.Substring([Math]::Min($Record.LeadingBoldText.Length, $raw.Length))
+        if ($namePart -match '^(?<name>.+?)\s*\[(?<type>[^\]]+)\]$') {
+            $name = ConvertTo-PlainText $Matches.name
+            $type = ConvertTo-PlainText $Matches.type
+            $typeStyle = 'bracketed'
+        }
+        elseif ($namePart -match '^(?<name>.+?)\s+\((?<type>Ex|Su|Sp|Ps)\)$') {
+            $name = ConvertTo-PlainText $Matches.name
+            $type = $Matches.type
+            $typeStyle = 'parenthetical'
+        }
+        else {
+            $name = $namePart
+            if ($body -match '^\s*\[(?<type>[^\]]+)\]\s*(?<body>.*)$') {
+                $type = ConvertTo-PlainText $Matches.type
+                $typeStyle = 'bracketed'
+                $body = ConvertTo-PlainText $Matches.body
+            }
+        }
+    }
+    elseif ($raw -match '^(?<name>.+?)\s*\[(?<type>[^\]]+)\]\s+(?<body>.+)$') {
+        $name = ConvertTo-PlainText $Matches.name
+        $type = ConvertTo-PlainText $Matches.type
+        $typeStyle = 'bracketed'
+        $body = ConvertTo-PlainText $Matches.body
+    }
+    elseif ($raw -match '^(?<name>.+?)\s+\((?<type>Ex|Su|Sp|Ps)\)\s+(?<body>.+)$') {
+        $name = ConvertTo-PlainText $Matches.name
+        $type = $Matches.type
+        $typeStyle = 'parenthetical'
+        $body = ConvertTo-PlainText $Matches.body
+    }
+    elseif ($raw -match '^(?<name>Skills)\s+(?<body>.+)$') {
+        $name = 'Skills'
+        $body = ConvertTo-PlainText $Matches.body
+    }
+    elseif ($raw -match '^(?<name>.+?)\s+(?:-|:|—)\s+(?<body>.+)$') {
+        $name = ConvertTo-PlainText $Matches.name
+        $body = ConvertTo-PlainText $Matches.body
+    }
+    elseif ($raw -cmatch '^(?<name>[A-Z][A-Za-z0-9''+() -]{1,80}?)\s+(?<body>(?:The|A|An|Full|When|Once|If|This)\b.+)$') {
+        $name = ConvertTo-PlainText $Matches.name
+        $body = ConvertTo-PlainText $Matches.body
+    }
+    else {
+        return $null
+    }
+
+    $normalizedRaw = $raw
+    if ($typeStyle -eq 'bracketed') {
+        $normalizedRaw = ("{0} [{1}] {2}" -f $name, $type, $body).Trim()
+    }
+    elseif ($typeStyle -eq 'parenthetical') {
+        $normalizedRaw = ("{0} ({1}) {2}" -f $name, $type, $body).Trim()
+    }
+
+    return [pscustomobject][ordered]@{
+        Name = $name
+        Type = $type
+        TypeStyle = $typeStyle
+        Body = $body
+        Raw = $normalizedRaw
+    }
+}
+
+function Parse-LowerEntryRecords {
+    param(
+        [object[]]$Records,
+        [System.Collections.Generic.List[string]]$Warnings
+    )
+
+    $entries = New-Object System.Collections.Generic.List[object]
+    $notes = New-Object System.Collections.Generic.List[string]
+    foreach ($record in @($Records)) {
+        if (-not $record -or -not $record.Text) {
+            continue
+        }
+        $recordText = ConvertTo-PlainText $record.Text
+        if ($recordText -match '^D\s*:?[ ]*Domain spell\.?$') {
+            continue
+        }
+        if ($entries.Count -gt 0) {
+            $previous = $entries[$entries.Count - 1]
+            $isPotionStatContinuation = $previous.Name -match '^Potion of\b' -and
+                $recordText -match '^(?:Spd|AC|Fort|Ref|Will|Melee|Ranged|Skills|Haste Full Attack)\b'
+            if ($isPotionStatContinuation) {
+                $previous.Body = (($previous.Body, $recordText | Where-Object { $_ }) -join "`n`n")
+                $previous.Raw = (($previous.Raw, $recordText | Where-Object { $_ }) -join "`n`n")
+                continue
+            }
+        }
+
+        $entry = New-LowerEntryFromRecord -Record $record -Warnings $Warnings
+        if ($entry) {
+            $entries.Add($entry)
+        }
+        elseif ($entries.Count -gt 0) {
+            $previous = $entries[$entries.Count - 1]
+            $previous.Body = (($previous.Body, (ConvertTo-PlainText $record.Text) | Where-Object { $_ }) -join "`n`n")
+            $previous.Raw = (($previous.Raw, (ConvertTo-PlainText $record.Text) | Where-Object { $_ }) -join "`n`n")
+        }
+        else {
+            $preserved = ConvertTo-PlainText $record.Text
+            $notes.Add($preserved)
+            Add-Warning -Warnings $Warnings -Message "Ambiguous plain-text lower entry preserved as a note: $preserved"
+        }
+    }
+    return [pscustomobject][ordered]@{
+        Entries = @($entries | ForEach-Object { $_ })
+        Notes = @($notes | ForEach-Object { $_ })
+    }
+}
+
+function Parse-SpellReferenceRecords {
+    param(
+        [object[]]$Records,
+        [System.Collections.Generic.List[string]]$Warnings
+    )
+
+    $levels = New-Object System.Collections.Generic.List[object]
+    $currentLevel = $null
+    $currentSpell = $null
+
+    $completeReferenceSpell = {
+        if ($null -ne $currentSpell -and $null -ne $currentLevel) {
+            $currentSpell.Body = ($currentSpell.BodyParagraphs -join "`n`n")
+            $rawParts = @($currentSpell.Name)
+            if ($currentSpell.CompactRules) { $rawParts += $currentSpell.CompactRules }
+            $rawParts += @($currentSpell.BodyParagraphs)
+            $currentSpell.Raw = ($rawParts -join "`n`n")
+            $currentLevel.Spells += $currentSpell
+            $currentSpell = $null
+        }
+    }
+
+    for ($index = 0; $index -lt @($Records).Count; $index++) {
+        $record = $Records[$index]
+        $text = ConvertTo-PlainText $record.Text
+        if (-not $text) { continue }
+
+        if ($text -match '^(?<level>\d+)(?:st|nd|rd|th)?-Level Spells$') {
+            . $completeReferenceSpell
+            $currentLevel = [pscustomobject][ordered]@{
+                Level = [int]$Matches.level
+                Label = $text
+                Spells = @()
+            }
+            $levels.Add($currentLevel)
+            continue
+        }
+
+        if ($text -match '^[A-Za-z][A-Za-z /-]+ Spells$') {
+            . $completeReferenceSpell
+            $currentLevel = $null
+            continue
+        }
+
+        if ($null -eq $currentLevel) {
+            if ($text -match '(?i)spontaneous cure spells?.*included below') {
+                continue
+            }
+            Add-Warning -Warnings $Warnings -Message "Spell Reference text before a level heading was preserved as a warning: $text"
+            continue
+        }
+
+        $nextText = ''
+        if (($index + 1) -lt @($Records).Count) {
+            $nextText = ConvertTo-PlainText $Records[$index + 1].Text
+        }
+        $isSpellName = $record.IsBold -or
+            ($record.SourceKind -eq 'text' -and $text.Length -le 100 -and $nextText -match ';')
+
+        if ($isSpellName) {
+            . $completeReferenceSpell
+            $currentSpell = [pscustomobject][ordered]@{
+                Name = $text
+                MatchKey = ConvertTo-ReferenceMatchKey $text
+                CompactRules = ''
+                BodyParagraphs = @()
+                Body = ''
+                Raw = ''
+                MatchedUpperSpell = $false
+            }
+            continue
+        }
+
+        if ($null -eq $currentSpell) {
+            Add-Warning -Warnings $Warnings -Message "Spell Reference paragraph without a spell name was preserved as a warning: $text"
+            continue
+        }
+
+        if (-not $currentSpell.CompactRules -and ($record.IsItalic -or $text -match ';')) {
+            $currentSpell.CompactRules = $text
+        }
+        else {
+            $currentSpell.BodyParagraphs += $text
+        }
+    }
+
+    . $completeReferenceSpell
+    return [pscustomobject][ordered]@{
+        Heading = 'Spell Reference'
+        Levels = @($levels | ForEach-Object { $_ })
+    }
+}
+
+function Link-SpellReferenceEntries {
+    param(
+        [object[]]$UpperSpells,
+        [pscustomobject]$SpellReference,
+        [System.Collections.Generic.List[string]]$Warnings
+    )
+
+    $referenceMap = @{}
+    foreach ($level in @($SpellReference.Levels)) {
+        foreach ($reference in @($level.Spells)) {
+            $key = ConvertTo-ReferenceMatchKey $reference.Name
+            if (-not $referenceMap.ContainsKey($key)) {
+                $referenceMap[$key] = New-Object System.Collections.Generic.List[object]
+            }
+            $referenceMap[$key].Add($reference)
+        }
+    }
+
+    $seenUpper = @{}
+    foreach ($spell in @($UpperSpells)) {
+        $key = ConvertTo-ReferenceMatchKey $spell.Name
+        if (-not $key) { continue }
+        if (-not $seenUpper.ContainsKey($key)) { $seenUpper[$key] = $spell }
+        if ($referenceMap.ContainsKey($key)) {
+            $reference = $referenceMap[$key][0]
+            $reference.MatchedUpperSpell = $true
+            Add-Member -InputObject $spell -MemberType NoteProperty -Name Reference -Value $reference -Force
+        }
+    }
+
+    foreach ($key in $seenUpper.Keys) {
+        if (-not $referenceMap.ContainsKey($key)) {
+            Add-Warning -Warnings $Warnings -Message "Upper spell '$($seenUpper[$key].Name)' has no matching Spell Reference entry."
+        }
+    }
+    foreach ($level in @($SpellReference.Levels)) {
+        foreach ($reference in @($level.Spells)) {
+            if (-not $reference.MatchedUpperSpell) {
+                if ($reference.Body -match '(?i)\bspontane(?:ous|ously)\b') {
+                    continue
+                }
+                Add-Warning -Warnings $Warnings -Message "Spell Reference entry '$($reference.Name)' has no matching upper prepared/known spell."
+            }
+        }
+    }
+}
+
 function ConvertTo-ProjectModel {
     param(
         [Parameter(Mandatory)]
@@ -1514,7 +2029,19 @@ function ConvertTo-ProjectModel {
         [string]$SpellMacroLibraryPath
     )
 
-    $paragraphs = Get-StatBlockParagraphs -Path $Path
+    $rawRecords = @(Get-StatBlockParagraphRecords -Path $Path)
+    $joinedRecords = New-Object System.Collections.Generic.List[object]
+    foreach ($record in $rawRecords) {
+        $previous = if ($joinedRecords.Count) { $joinedRecords[$joinedRecords.Count - 1] } else { $null }
+        if ($previous -and $previous.Text -match '^(Melee|Ranged)\b' -and
+            $record.Text -notmatch '^(Melee|Ranged)\b' -and
+            $record.Text -match '^.+?\s+[+\-]\d+(?:/[+\-]\d+)*(?:\s+each)?\s*\(') {
+            $previous.Text += ' ' + $record.Text
+        }
+        else { $joinedRecords.Add($record) }
+    }
+    $paragraphRecords = @($joinedRecords | ForEach-Object { $_ })
+    $paragraphs = @($paragraphRecords | ForEach-Object { $_.Text })
     $warnings = New-Object System.Collections.Generic.List[string]
 
     if ($paragraphs.Count -eq 0) {
@@ -1579,12 +2106,21 @@ function ConvertTo-ProjectModel {
             Abilities = [pscustomobject][ordered]@{}
             SQ = ''
             Feats = ''
+            ExpandedFeats = @()
             Skills = ''
+            ExpandedSkillDetails = @()
             SkillEntries = @()
+            SkillTricks = ''
             Possessions = ''
             Spellbook = ''
             Notes = @()
             SpecialAbilities = @()
+            OrdinaryEntries = @()
+            LowerSkillsEntry = $null
+            SpellReference = [pscustomobject][ordered]@{
+                Heading = ''
+                Levels = @()
+            }
         }
         Warnings = @()
     }
@@ -1592,9 +2128,25 @@ function ConvertTo-ProjectModel {
     $abilityScores = $null
     $spellHeader = $null
     $spellLines = New-Object System.Collections.Generic.List[string]
+    $lowerStartIndex = -1
+    $spellReferenceIndex = -1
+    for ($candidateIndex = 0; $candidateIndex -lt $paragraphs.Count; $candidateIndex++) {
+        if ($paragraphs[$candidateIndex] -eq 'Spell Reference') {
+            $spellReferenceIndex = $candidateIndex
+            break
+        }
+    }
+    $upperLimit = $(if ($spellReferenceIndex -ge 0) { $spellReferenceIndex } else { $paragraphs.Count })
 
-    while ($lineIndex -lt $paragraphs.Count) {
+    while ($lineIndex -lt $upperLimit) {
         $line = $paragraphs[$lineIndex]
+
+        $lowerSkillsStartsHere = $line -match '^Skills\s+\D' -and @($model.Creature.SkillEntries).Count -gt 0
+        $isKnownUpperField = $line -match '^(?:Skill Tricks|Possessions|Combat Gear)\b'
+        if ($lowerSkillsStartsHere -or (-not $isKnownUpperField -and (Test-IsLowerEntryStart -Record $paragraphRecords[$lineIndex] -StatisticsSeen ($null -ne $abilityScores)))) {
+            $lowerStartIndex = $lineIndex
+            break
+        }
 
         if ($spellHeader -and $line -match '^D\s+domain spell;\s*Domains\s+(?<domains>.+)$') {
             $parsedSpellEntries = Parse-SpellLevelEntries -Lines $spellLines.ToArray() -Header $spellHeader -Warnings $warnings
@@ -1668,6 +2220,7 @@ function ConvertTo-ProjectModel {
                 break
             }
             '^Immune\b' { $model.Creature.Immune = ($line -replace '^Immune\s+', ''); break }
+            '^SR\b' { $model.Creature.SR = ($line -replace '^SR\s+', ''); break }
             '^Resist\b' {
                 $resist = Parse-ResistLine -Line $line
                 $model.Creature.Resist = $resist.Resist
@@ -1713,24 +2266,14 @@ function ConvertTo-ProjectModel {
             '^Atk Options\b' { $model.Creature.AttackOptions = ($line -replace '^Atk Options\s+', ''); break }
             '^Special Actions\b' { $model.Creature.SpecialActions = ($line -replace '^Special Actions\s+', ''); break }
             '^Combat Gear\b' { $model.Creature.CombatGear = ($line -replace '^Combat Gear\s*', ''); break }
-            '^(?:[A-Za-z][A-Za-z ''/-]+?\s+)?(Spell-Like Abilities|Psi-Like Abilities|Powers Known|Imbued Spells|Spells Prepared/Known|Spells Prepared|Spells Known)\b' {
+            '^Spells\s+(?!Prepared\b|Known\b)' {
+                $model.Creature.Notes += $line
+                break
+            }
+            '^(?:[A-Za-z][A-Za-z ''/-]+?\s+)?(Spell-Like Abilities|Psi-Like Abilities|Psionics|Powers Known|Imbued Spells|Spells Prepared/Known|Spells Prepared|Spells Known)\b' {
                 $spellHeader = Parse-SpellHeaderLine -Line $line -Identity $identity
                 if ($spellHeader.Heading -match 'Spell-Like|Psi-Like' -and $spellHeader.InlineText) {
-                    $inlineEntries = [regex]::Matches(
-                        $spellHeader.InlineText,
-                        '(?<usage>At will|Constant|\d+/\w+|\d+/day|\d+/round|\d+/week|\d+/month)-(?<body>.*?)(?=(?:At will|Constant|\d+/\w+|\d+/day|\d+/round|\d+/week|\d+/month)-|$)'
-                    )
-                    foreach ($inlineEntry in $inlineEntries) {
-                        $model.Creature.SpellLikeAbilities += [pscustomobject]@{
-                            Kind = 'SpellLike'
-                            Usage = (ConvertTo-PlainText $inlineEntry.Groups['usage'].Value)
-                            Name = (ConvertTo-NormalizedSpellName $inlineEntry.Groups['body'].Value)
-                            Raw = (ConvertTo-PlainText $inlineEntry.Groups['body'].Value)
-                            SaveDC = ''
-                            MatchedMacro = ''
-                            MatchedMacroPath = ''
-                        }
-                    }
+                    $model.Creature.SpellLikeAbilities += Parse-UsageEntries -Text $spellHeader.InlineText -Header $spellHeader
                     $spellHeader = $null
                 }
                 break
@@ -1742,9 +2285,13 @@ function ConvertTo-ProjectModel {
                 break
             }
             '^SQ\b' { $model.Creature.SQ = ($line -replace '^SQ\s+', ''); break }
-            '^Feats\b' { $model.Creature.Feats = ($line -replace '^Feats\s+', ''); break }
+            '^Feats\b' {
+                $model.Creature.Feats = Normalize-FeatListText ($line -replace '^Feats\s+', '')
+                break
+            }
             '^Skills\b' {
                 if ($model.Creature.SkillEntries -and $model.Creature.SkillEntries.Count -gt 0) {
+                    $model.Creature.ExpandedSkillDetails += $line
                     $model.Creature.Notes += $line
                 }
                 elseif ($line -match '^Skills\s+(?!An?\b|The\b).*[+\-]\d') {
@@ -1758,10 +2305,24 @@ function ConvertTo-ProjectModel {
                 }
                 break
             }
+            '^Skill Tricks\b' { $model.Creature.SkillTricks = ($line -replace '^Skill Tricks\s+', ''); break }
             '^Possessions\b' { $model.Creature.Possessions = ($line -replace '^Possessions\s+', ''); break }
             '^Spellbook\b' { $model.Creature.Spellbook = ($line -replace '^Spellbook\s+', ''); break }
             default {
-                if ($line -match '^(?<name>[^()]+?)\s+\((?<type>Ex|Su|Sp|Ps)\)\s*(?<body>.*)$') {
+                if ($line -match '^(?<name>.+?)\s+\[(?<category>[^\]]+)\]\s+(?<body>.+)$') {
+                    if (Test-IsFeatCategory -Category $Matches.category) {
+                        $model.Creature.ExpandedFeats += [pscustomobject]@{
+                            Name = (ConvertTo-PlainText $Matches.name)
+                            Category = (ConvertTo-PlainText $Matches.category)
+                            Body = (ConvertTo-PlainText $Matches.body)
+                            Raw = (ConvertTo-PlainText $line)
+                        }
+                    }
+                    else {
+                        $model.Creature.Notes += $line
+                    }
+                }
+                elseif ($line -match '^(?<name>[^()]+?)\s+\((?<type>Ex|Su|Sp|Ps)\)\s*(?<body>.*)$') {
                     $model.Creature.SpecialAbilities += [pscustomobject]@{
                         Name = (ConvertTo-PlainText $Matches.name)
                         Type = $Matches.type
@@ -1790,26 +2351,91 @@ function ConvertTo-ProjectModel {
         }
     }
 
+    if ($lowerStartIndex -ge 0) {
+        $lowerEndIndex = $(if ($spellReferenceIndex -ge 0) { $spellReferenceIndex } else { $paragraphRecords.Count })
+        $lowerCount = $lowerEndIndex - $lowerStartIndex
+        if ($lowerCount -gt 0) {
+            $lowerRecords = @($paragraphRecords | Select-Object -Skip $lowerStartIndex -First $lowerCount)
+            $lowerResult = Parse-LowerEntryRecords -Records $lowerRecords -Warnings $warnings
+            # Some campaign documents place a complete alternate-form stat
+            # block between the primary statistics and the shared expanded
+            # rules entries. Those upper-stat headings are reference data, not
+            # abilities to import into the character sheet.
+            $embeddedStatHeadings = @(
+                'Init', 'Aura', 'Languages', 'AC', 'hp', 'Immune', 'Resist',
+                'Fort', 'Spd', 'Melee', 'Ranged', 'Space', 'Reach', 'Base Atk',
+                'Atk Options', 'Special Actions', 'Combat Gear',
+                'Spells Prepared', 'Spells Known', 'Abilities', 'SQ', 'Feats',
+                'Possessions'
+            )
+            $allLowerEntries = @($lowerResult.Entries | Where-Object {
+                ($embeddedStatHeadings -notcontains $_.Name) -and
+                ($_.Name -notmatch 'CR\s*[\d-]+$')
+            })
+            $model.Creature.OrdinaryEntries = @($allLowerEntries | Where-Object { $_.Name -ne 'Skills' })
+            $model.Creature.Notes += @($lowerResult.Notes)
+            foreach ($entry in $allLowerEntries) {
+                $entryKey = ConvertTo-ReferenceMatchKey -Name $entry.Name
+                # Some sources list an at-will SLA only in SQ and its full lower
+                # rule entry. Import it only when usage and caster level are explicit.
+                if ($entry.Type -eq 'Sp' -and $entry.Body -match '\bAt will\b' -and
+                    $entry.Body -match '\bcaster level\s+(?<cl>\d+(?:st|nd|rd|th)?)\b') {
+                    $lowerCasterLevel = $Matches.cl
+                    $alreadyListed = @($model.Creature.SpellLikeAbilities | Where-Object {
+                        (ConvertTo-ReferenceMatchKey -Name $_.Name) -eq $entryKey
+                    }).Count -gt 0
+                    if (-not $alreadyListed) {
+                        $model.Creature.SpellLikeAbilities += [pscustomobject]@{
+                            Kind='SpellLike'; Usage='At will'; Name=$entry.Name; Raw=$entry.Name
+                            SaveDC=''; CasterLevel=$lowerCasterLevel; Heading='Spell-Like Abilities'
+                            MatchedMacro=''; MatchedMacroPath=''
+                            Reference=[pscustomobject]@{ Name=$entry.Name; CompactRules=''; BodyParagraphs=@($entry.Body); Body=$entry.Body; Raw=$entry.Raw }
+                        }
+                    }
+                }
+                $isListedFeat = @($model.Creature.Feats -split '\s*,\s*' | Where-Object {
+                    (ConvertTo-ReferenceMatchKey -Name $_) -eq $entryKey
+                }).Count -gt 0
+                if ($entry.Name -eq 'Skills') {
+                    $model.Creature.LowerSkillsEntry = $entry
+                    $model.Creature.ExpandedSkillDetails += $entry.Raw
+                }
+                elseif (($entry.TypeStyle -eq 'bracketed' -and (Test-IsFeatCategory -Category $entry.Type)) -or $isListedFeat) {
+                    $model.Creature.ExpandedFeats += [pscustomobject][ordered]@{
+                        Name = $entry.Name
+                        Category = $entry.Type
+                        Body = $entry.Body
+                        Raw = $entry.Raw
+                    }
+                }
+                elseif ($entry.TypeStyle -ne 'bracketed') {
+                    $model.Creature.SpecialAbilities += [pscustomobject][ordered]@{
+                        Name = $entry.Name
+                        Type = $entry.Type
+                        Body = $entry.Body
+                        Raw = $entry.Raw
+                    }
+                }
+            }
+        }
+    }
+
+    if ($spellReferenceIndex -ge 0) {
+        $referenceRecords = @($paragraphRecords | Select-Object -Skip ($spellReferenceIndex + 1))
+        $model.Creature.SpellReference = Parse-SpellReferenceRecords -Records $referenceRecords -Warnings $warnings
+        Link-SpellReferenceEntries -UpperSpells @($model.Creature.Spells) -SpellReference $model.Creature.SpellReference -Warnings $warnings
+    }
+    elseif (@($model.Creature.Spells).Count -gt 0 -and [System.IO.Path]::GetExtension($Path).ToLowerInvariant() -eq '.docx') {
+        Add-Warning -Warnings $warnings -Message 'Prepared or known spells were found, but the required Spell Reference section is missing.'
+    }
+
     $macroLibrary = Get-SpellMacroLibrary -Path $SpellMacroLibraryPath
 
     if ($model.Creature.SpellLikeAbilities.Count -eq 0) {
         foreach ($paragraph in $paragraphs) {
-            if ($paragraph -match '^(Spell-Like Abilities|Psi-Like Abilities)\b.*?:\s*(?<body>.+)$') {
-                $inlineEntries = [regex]::Matches(
-                    $Matches['body'],
-                    '(?<usage>At will|Constant|\d+/\w+|\d+/day|\d+/round|\d+/week|\d+/month)-(?<body>.*?)(?=(?:At will|Constant|\d+/\w+|\d+/day|\d+/round|\d+/week|\d+/month)-|$)'
-                )
-                foreach ($inlineEntry in $inlineEntries) {
-                    $model.Creature.SpellLikeAbilities += [pscustomobject]@{
-                        Kind = 'SpellLike'
-                        Usage = (ConvertTo-PlainText $inlineEntry.Groups['usage'].Value)
-                        Name = (ConvertTo-NormalizedSpellName $inlineEntry.Groups['body'].Value)
-                        Raw = (ConvertTo-PlainText $inlineEntry.Groups['body'].Value)
-                        SaveDC = ''
-                        MatchedMacro = ''
-                        MatchedMacroPath = ''
-                    }
-                }
+            if ($paragraph -match '^(Spell-Like Abilities|Psi-Like Abilities|Psionics)\b.*?:\s*(?<body>.+)$') {
+                $fallbackHeader = Parse-SpellHeaderLine -Line $paragraph -Identity $identity
+                $model.Creature.SpellLikeAbilities += Parse-UsageEntries -Text $Matches['body'] -Header $fallbackHeader
             }
         }
     }

@@ -28,8 +28,16 @@ function Split-Dnd35List {
     $result = New-Object System.Collections.Generic.List[string]
     $buffer = New-Object System.Text.StringBuilder
     $depth = 0
+    $thousandsMarker = [char]0xE000
+    $groupingMarker = [char]0xE001
+    $workingText = [regex]::Replace($Text, '(?<=\d),(?=\d{3}(?:\D|$))', [string]$thousandsMarker)
+    $workingText = [regex]::Replace(
+        $workingText,
+        '(?i)(?:masterwork\s+)?artisan(?:''|\u2019)s tools for [^,()]+,\s*[^,()]+,\s*and\s+[^,()]+',
+        { param($match) $match.Value.Replace(',', [string]$groupingMarker) }
+    )
 
-    foreach ($character in $Text.ToCharArray()) {
+    foreach ($character in $workingText.ToCharArray()) {
         if ($character -eq '(') {
             $depth++
         }
@@ -38,7 +46,7 @@ function Split-Dnd35List {
         }
 
         if ($character -eq ',' -and $depth -eq 0) {
-            $part = $buffer.ToString().Trim()
+            $part = $buffer.ToString().Replace([string]$thousandsMarker, ',').Replace([string]$groupingMarker, ',').Trim()
             if ($part) {
                 $result.Add($part)
             }
@@ -49,7 +57,7 @@ function Split-Dnd35List {
         [void]$buffer.Append($character)
     }
 
-    $tail = $buffer.ToString().Trim()
+    $tail = $buffer.ToString().Replace([string]$thousandsMarker, ',').Replace([string]$groupingMarker, ',').Trim()
     if ($tail) {
         $result.Add($tail)
     }
@@ -117,6 +125,17 @@ function Convert-ProjectSpellToJson {
         [string]$Kind
     )
 
+    $reference = $null
+    if ($Spell.PSObject.Properties['Reference'] -and $Spell.Reference) {
+        $reference = [pscustomobject][ordered]@{
+            name = $Spell.Reference.Name
+            compact_rules = $Spell.Reference.CompactRules
+            body_paragraphs = @($Spell.Reference.BodyParagraphs)
+            body = $Spell.Reference.Body
+            raw = $Spell.Reference.Raw
+        }
+    }
+
     return [pscustomobject][ordered]@{
         kind = $Kind
         track = $Spell.Track
@@ -130,6 +149,7 @@ function Convert-ProjectSpellToJson {
         prepared_count = $Spell.PreparedCount
         usage = $Spell.Usage
         matched_macro = $Spell.MatchedMacro
+        reference = $reference
     }
 }
 
@@ -150,11 +170,23 @@ function Convert-ProjectSpellToRoll20Spell {
         $details.prepared = $false
     }
 
+    $reference = $null
+    if ($Spell.PSObject.Properties['Reference'] -and $Spell.Reference) {
+        $reference = [pscustomobject][ordered]@{
+            name = $Spell.Reference.Name
+            compact_rules = $Spell.Reference.CompactRules
+            body_paragraphs = @($Spell.Reference.BodyParagraphs)
+            body = $Spell.Reference.Body
+            raw = $Spell.Reference.Raw
+        }
+    }
+
     return [pscustomobject][ordered]@{
         name = $Spell.Name
         raw = $Spell.Raw
         details = [pscustomobject]$details
         macro_text = $Spell.MatchedMacro
+        reference = $reference
     }
 }
 
@@ -231,7 +263,7 @@ function Convert-ProjectSpellsToRoll20Sections {
             -Type $spell.Heading `
             -CasterLevel $spell.CasterLevel `
             -Extras $(if ($Domains) { "Domains/Prohibited schools $Domains" } else { '' }) `
-            -GroupLabel ([string]$spell.Level) `
+            -GroupLabel $(if ($spell.Slots) { '{0} ({1})' -f $spell.Level, $spell.Slots } else { [string]$spell.Level }) `
             -Spell $spell `
             -Prepared $prepared
     }
@@ -304,6 +336,64 @@ function ConvertTo-Dnd35JsonModel {
     return ConvertFrom-ProjectModelToRoll20ImporterJson -Project $project
 }
 
+function ConvertTo-Roll20CompoundNaturalAttackFragment {
+    param(
+        [string]$RawLine,
+        [string]$Category
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RawLine)) {
+        return ''
+    }
+
+    $prefix = if ($Category -eq 'Melee') { '^Melee\*?\s+' } else { '^Ranged\*?\s+' }
+    $plainLine = ($RawLine `
+        -replace [char]0x2013, '-' `
+        -replace [char]0x2014, '-' `
+        -replace [char]0x2212, '-' `
+        -replace [char]0x00A0, ' ' `
+        -replace '\s+', ' ').Trim()
+    $body = $plainLine -replace $prefix, ''
+    $pattern = '^(?<count>\d+)\s+(?<plural>[\p{L}''\u2019 -]+?)\s+(?<primary>[+\-]\d+)\s+each\s+\((?<primaryDamage>[^)]+)\)\s+plus\s+(?<secondary>[\p{L}''\u2019 -]+?)\s+(?<secondaryBonuses>[+\-]\d+(?:/[+\-]\d+)*)\s+\((?<secondaryDamage>[^)]+)\)\s*$'
+    if ($body -notmatch $pattern) {
+        return ''
+    }
+
+    $primaryName = $Matches.plural.Trim().ToLowerInvariant()
+    $secondaryName = $Matches.secondary.Trim().ToLowerInvariant()
+    if ($primaryName.EndsWith('s')) {
+        $primaryName = $primaryName.Substring(0, $primaryName.Length - 1)
+    }
+    if ($secondaryName.EndsWith('s')) {
+        $secondaryName = $secondaryName.Substring(0, $secondaryName.Length - 1)
+    }
+    if ($primaryName -ne $secondaryName) {
+        return ''
+    }
+
+    $primaryDamage = ($Matches.primaryDamage -replace '\s+', ' ').Trim()
+    $secondaryDamage = ($Matches.secondaryDamage -replace '\s+', ' ').Trim()
+    if ($primaryDamage -ne $secondaryDamage) {
+        return ''
+    }
+
+    $attackCount = [int]$Matches.count
+    if ($attackCount -lt 1 -or $attackCount -gt 20) {
+        return ''
+    }
+
+    $bonuses = New-Object System.Collections.Generic.List[string]
+    for ($index = 0; $index -lt $attackCount; $index++) {
+        $bonuses.Add([string]$Matches.primary)
+    }
+    foreach ($bonus in $Matches.secondaryBonuses.Split('/')) {
+        $bonuses.Add($bonus)
+    }
+
+    $totalCount = $bonuses.Count
+    return "$totalCount $secondaryName $($bonuses -join '/') ($primaryDamage)"
+}
+
 function Get-Roll20AttackLineEntries {
     param(
         [object[]]$Attacks,
@@ -315,9 +405,23 @@ function Get-Roll20AttackLineEntries {
         return @()
     }
 
-    $fragments = foreach ($attack in @($Attacks | Where-Object { $_.Category -eq $Category })) {
-        [pscustomobject][ordered]@{
-            raw = $attack.Raw
+    $compoundFragment = ConvertTo-Roll20CompoundNaturalAttackFragment -RawLine $RawLine -Category $Category
+    if ($compoundFragment) {
+        $fragments = @(
+            [pscustomobject][ordered]@{
+                raw = $compoundFragment
+            }
+        )
+    }
+    else {
+        $seenFragments = @{}
+        $fragments = foreach ($attack in @($Attacks | Where-Object { $_.Category -eq $Category })) {
+            $fragmentKey = $attack.Raw.Trim().ToLowerInvariant()
+            if ($seenFragments.ContainsKey($fragmentKey)) { continue }
+            $seenFragments[$fragmentKey] = $true
+            [pscustomobject][ordered]@{
+                raw = $attack.Raw
+            }
         }
     }
 
@@ -332,12 +436,41 @@ function Get-Roll20AttackLineEntries {
 function Get-Roll20SpecialAbilities {
     param([pscustomobject]$Project)
 
+    if (@($Project.Creature.OrdinaryEntries).Count -gt 0) {
+        $expandedFeatNames = @($Project.Creature.ExpandedFeats | ForEach-Object { $_.Name })
+        return @(
+            foreach ($entry in @($Project.Creature.OrdinaryEntries | Where-Object {
+                $_.TypeStyle -ne 'bracketed' -and
+                $_.Name -ne 'Skills' -and
+                $expandedFeatNames -notcontains $_.Name
+            })) {
+                [pscustomobject][ordered]@{
+                    name = $entry.Name
+                    type = $entry.Type
+                    raw = $entry.Raw
+                }
+            }
+        )
+    }
+
     $abilities = New-Object System.Collections.Generic.List[object]
     $rawText = [string]$Project.Raw.StatBlockText
     $lines = @($rawText -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch '^_+$' })
     $current = $null
 
     foreach ($line in $lines) {
+        if ($line -match '^.+?\s+\[[^\]]+\]\s+.+$') {
+            if ($current) {
+                $abilities.Add([pscustomobject][ordered]@{
+                    name = $current.Name
+                    type = $current.Type
+                    raw = ($current.Lines -join "`n`n")
+                })
+                $current = $null
+            }
+            continue
+        }
+
         if ($line -match '^(?<name>[A-Z][A-Za-z0-9'' -]+?)\s+\((?<type>Ex|Su|Sp|Ps)\)\s*(?<body>.*)$') {
             if ($current) {
                 $abilities.Add([pscustomobject][ordered]@{
@@ -397,7 +530,62 @@ function Get-Roll20SpecialAbilities {
 function Get-Roll20BioNotes {
     param([pscustomobject]$Project)
 
-    return @($Project.Creature.Notes | Where-Object { $_ -match '^Skills\b' }) -join "`n`n"
+    $skillSummaries = @{}
+    foreach ($skill in @($Project.Creature.SkillEntries)) {
+        $key = ("{0} {1}" -f $skill.Name, $skill.Bonus).Trim().ToLowerInvariant()
+        if ($key) {
+            $skillSummaries[$key] = $true
+        }
+    }
+
+    return @(
+        $Project.Creature.Notes | Where-Object {
+            $noteKey = ([string]$_).Trim().ToLowerInvariant()
+            -not ($noteKey -and $skillSummaries.ContainsKey($noteKey)) -and
+            $noteKey -notmatch '^d\s*:?[ ]*domain spell\.?$' -and
+            $noteKey -notmatch '^b\s+.*bonus feat\.?$' -and
+            $noteKey -notmatch '^(?:listen|spot)\s+[+\-]?\d+$'
+        }
+    ) -join "`n`n"
+}
+
+function Convert-LowerEntryToJson {
+    param([pscustomobject]$Entry)
+
+    if (-not $Entry) { return $null }
+    return [pscustomobject][ordered]@{
+        name = $Entry.Name
+        type = $Entry.Type
+        type_style = $Entry.TypeStyle
+        body = $Entry.Body
+        raw = $Entry.Raw
+    }
+}
+
+function Convert-SpellReferenceToJson {
+    param([pscustomobject]$SpellReference)
+
+    $levels = foreach ($level in @($SpellReference.Levels)) {
+        $spells = foreach ($spell in @($level.Spells)) {
+            [pscustomobject][ordered]@{
+                name = $spell.Name
+                compact_rules = $spell.CompactRules
+                body_paragraphs = @($spell.BodyParagraphs)
+                body = $spell.Body
+                raw = $spell.Raw
+                matched_upper_spell = [bool]$spell.MatchedUpperSpell
+            }
+        }
+        [pscustomobject][ordered]@{
+            level = $level.Level
+            label = $level.Label
+            spells = @($spells)
+        }
+    }
+    return [pscustomobject][ordered]@{
+        heading = $SpellReference.Heading
+        levels = @($levels)
+    }
 }
 
 function Split-Roll20SkillNameList {
@@ -407,10 +595,71 @@ function Split-Roll20SkillNameList {
     return @($clean -split '\s*,\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 }
 
+function Get-Roll20SkillDetails {
+    param([pscustomobject]$Project)
+
+    $details = New-Object System.Collections.Generic.List[object]
+    foreach ($note in @($Project.Creature.ExpandedSkillDetails)) {
+        $body = $note -replace '^Skills\s+', ''
+        foreach ($sentence in @($body -split '(?<=[.])\s+')) {
+            $clean = $sentence.Trim()
+            if ($clean -notmatch '^(?<skill>[A-Z][A-Za-z ]+(?:\s+\([^)]+\))?)\s+(?<total>[+-]\d+)(?<condition>.*?)\s+includes\s+(?:the\s+|an?\s+)?(?<modifiers>.+?)[.]?$') {
+                continue
+            }
+
+            $condition = $Matches.condition.Trim(' ', ',', ';')
+            $modifierText = $Matches.modifiers
+            $modifiers = New-Object System.Collections.Generic.List[object]
+
+            foreach ($modifierMatch in [regex]::Matches($modifierText, '(?<bonus>[+-]\d+)\s+(?<type>[A-Za-z-]+\s+)?bonus\s+from\s+(?<source>[^.;]+?)(?=\s+and\s+(?:an?\s+|the\s+)?[+-]\d+|[.;]|$)', 'IgnoreCase')) {
+                $modifiers.Add([pscustomobject][ordered]@{
+                    bonus = [int]$modifierMatch.Groups['bonus'].Value
+                    type = $(if ($modifierMatch.Groups['type'].Success) { $modifierMatch.Groups['type'].Value.Trim().ToLowerInvariant() } else { 'untyped' })
+                    source = $modifierMatch.Groups['source'].Value.Trim()
+                    reason = ''
+                })
+            }
+
+            foreach ($modifierMatch in [regex]::Matches($modifierText, '(?<bonus>-\d+)\s+penalty\s+for\s+(?<reason>[^.;]+?)(?=\s+and\s+(?:an?\s+|the\s+)?[+-]\d+|[.;]|$)', 'IgnoreCase')) {
+                $modifiers.Add([pscustomobject][ordered]@{
+                    bonus = [int]$modifierMatch.Groups['bonus'].Value
+                    type = 'penalty'
+                    source = ''
+                    reason = $modifierMatch.Groups['reason'].Value.Trim()
+                })
+            }
+
+            $details.Add([pscustomobject][ordered]@{
+                skill = $Matches.skill.Trim()
+                total = [int]$Matches.total
+                condition = $condition
+                modifiers = @($modifiers | ForEach-Object { $_ })
+                raw = $clean
+            })
+        }
+    }
+
+    return @($details | ForEach-Object { $_ })
+}
+
 function Get-Roll20SkillBonuses {
     param([pscustomobject]$Project)
 
     $bonuses = New-Object System.Collections.Generic.List[object]
+    foreach ($detail in @(Get-Roll20SkillDetails -Project $Project)) {
+        if ($detail.Condition) {
+            continue
+        }
+        foreach ($modifier in @($detail.Modifiers)) {
+            $bonuses.Add([pscustomobject][ordered]@{
+                bonus = [int]$modifier.Bonus
+                type = $modifier.Type
+                skills = @($detail.Skill)
+                source = $detail.Raw
+            })
+        }
+    }
+
     foreach ($note in @($Project.Creature.Notes | Where-Object { $_ -match '^Skills\b' })) {
         $body = $note -replace '^Skills\s+', ''
         $matches = [regex]::Matches($body, '([+-]\d+)\s+(?<type>[a-z-]+)\s+bonus on (?<skills>.+?) checks', 'IgnoreCase')
@@ -439,11 +688,39 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
 
     $feats = Split-Dnd35List -Text $Project.Creature.Feats
     $skills = foreach ($skill in @($Project.Creature.SkillEntries)) {
-        "{0} {1}{2}" -f $skill.Name, $skill.Bonus, $(if ($skill.Notes) { " ($($skill.Notes))" } else { '' })
+        $skillNote = ([string]$skill.Notes).Trim()
+        if ($skillNote -match '^\((?<body>.*)\)$') {
+            $skillNote = $Matches.body
+        }
+        "{0} {1}{2}" -f $skill.Name, $skill.Bonus, $(if ($skillNote) { " ($skillNote)" } else { '' })
     }
-    $possessions = @((Split-Dnd35List -Text $Project.Creature.Possessions) + (Split-Dnd35List -Text $Project.Creature.CombatGear) | Where-Object { $_ })
+    $possessions = @(
+        (Split-Dnd35List -Text $Project.Creature.Possessions) +
+        (Split-Dnd35List -Text $Project.Creature.CombatGear) |
+        Where-Object { $_ -and $_ -notmatch '^combat gear$' }
+    )
     $combatGear = Split-Dnd35List -Text $Project.Creature.CombatGear
+    $classes = foreach ($class in @($Project.Creature.Identity.Classes)) {
+        [pscustomobject][ordered]@{
+            name = $class.Name
+            level = $class.Level
+        }
+    }
     $specialAbilities = Get-Roll20SpecialAbilities -Project $Project
+    $featDetails = foreach ($feat in @($Project.Creature.ExpandedFeats)) {
+        [pscustomobject][ordered]@{
+            name = $feat.Name
+            category = $feat.Category
+            body = $feat.Body
+            raw = $feat.Raw
+        }
+    }
+    $skillDetails = Get-Roll20SkillDetails -Project $Project
+    $ordinaryEntries = foreach ($entry in @($Project.Creature.OrdinaryEntries)) {
+        Convert-LowerEntryToJson -Entry $entry
+    }
+    $lowerSkillsEntry = Convert-LowerEntryToJson -Entry $Project.Creature.LowerSkillsEntry
+    $spellReference = Convert-SpellReferenceToJson -SpellReference $Project.Creature.SpellReference
     $bioNotes = Get-Roll20BioNotes -Project $Project
 
     return [pscustomobject][ordered]@{
@@ -463,6 +740,7 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
                 ancestry = $Project.Creature.Identity.RaceText
                 alignment_size_type = $Project.Creature.Identity.AlignmentLine
                 source_reference = $Project.Creature.Identity.ReferenceLine
+                classes = @($classes | ForEach-Object { $_ })
                 init_line = $(if ($Project.Creature.Senses) { "Init {0}; Senses {1}" -f $(if ($Project.Creature.Initiative -ge 0) { "+$($Project.Creature.Initiative)" } else { "$($Project.Creature.Initiative)" }), $Project.Creature.Senses } else { "Init {0}" -f $(if ($Project.Creature.Initiative -ge 0) { "+$($Project.Creature.Initiative)" } else { "$($Project.Creature.Initiative)" }) })
                 languages_line = $(if ($Project.Creature.Languages) { "Languages $($Project.Creature.Languages)" } else { '' })
                 aura_lines = $(if ($Project.Creature.Aura) { @("Aura $($Project.Creature.Aura)") } else { @() })
@@ -472,7 +750,7 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
                 hp_line = $Project.Creature.HP.Raw
                 fort_ref_will_line = "Fort {0}, Ref {1}, Will {2}" -f $(if ($Project.Creature.Saves.Fort -ge 0) { "+$($Project.Creature.Saves.Fort)" } else { "$($Project.Creature.Saves.Fort)" }), $(if ($Project.Creature.Saves.Ref -ge 0) { "+$($Project.Creature.Saves.Ref)" } else { "$($Project.Creature.Saves.Ref)" }), $(if ($Project.Creature.Saves.Will -ge 0) { "+$($Project.Creature.Saves.Will)" } else { "$($Project.Creature.Saves.Will)" })
                 immune_line = $Project.Creature.Immune
-                resist_line = $Project.Creature.Resist
+                resist_line = (@($Project.Creature.Resist, $(if ($Project.Creature.SR) { "SR $($Project.Creature.SR)" })) | Where-Object { $_ }) -join '; '
                 weaknesses_line = $Project.Creature.Weaknesses
             }
             offense = [pscustomobject][ordered]@{
@@ -487,15 +765,21 @@ function ConvertFrom-ProjectModelToRoll20ImporterJson {
                 spell_sections = @(Convert-ProjectSpellsToRoll20Sections -Spells $Project.Creature.Spells -SpellLikeAbilities $Project.Creature.SpellLikeAbilities -Powers $Project.Creature.Powers -Spellbook $Project.Creature.Spellbook -Domains $Project.Creature.Domains)
             }
             statistics = [pscustomobject][ordered]@{
-                abilities_line = "Abilities Str $($Project.Creature.Abilities.Str), Dex $($Project.Creature.Abilities.Dex), Con $($Project.Creature.Abilities.Con), Int $($Project.Creature.Abilities.Int), Wis $($Project.Creature.Abilities.Wis), Cha $($Project.Creature.Abilities.Cha)"
+                abilities_line = $(if (@($Project.Raw.Paragraphs | Where-Object { $_ -match '^Abilities\s+' }).Count) { @($Project.Raw.Paragraphs | Where-Object { $_ -match '^Abilities\s+' })[0] } else { "Abilities Str $($Project.Creature.Abilities.Str), Dex $($Project.Creature.Abilities.Dex), Con $($Project.Creature.Abilities.Con), Int $($Project.Creature.Abilities.Int), Wis $($Project.Creature.Abilities.Wis), Cha $($Project.Creature.Abilities.Cha)" })
                 sq_line = $(if ($Project.Creature.SQ) { "SQ $($Project.Creature.SQ)" } else { '' })
                 feats = @($feats | ForEach-Object { $_ })
+                feat_details = @($featDetails | ForEach-Object { $_ })
                 skills = @($skills | ForEach-Object { $_ })
+                skill_details = @($skillDetails | ForEach-Object { $_ })
                 skill_bonuses = @(Get-Roll20SkillBonuses -Project $Project)
+                skill_tricks = @((Split-Dnd35List -Text $Project.Creature.SkillTricks) | ForEach-Object { $_ })
                 possessions = @($possessions | ForEach-Object { $_ })
                 spellbook_line = $(if ($Project.Creature.Spellbook) { "Spellbook $($Project.Creature.Spellbook)" } else { '' })
             }
             special_abilities = @($specialAbilities | ForEach-Object { $_ })
+            ordinary_entries = @($ordinaryEntries | ForEach-Object { $_ })
+            lower_skills_entry = $lowerSkillsEntry
+            spell_reference = $spellReference
             bio_notes = $bioNotes
         }
         warnings = @($Project.Warnings)
@@ -545,6 +829,21 @@ function ConvertFrom-ProjectModelToDnd35Json {
             body = $ability.Body
         }
     }
+
+    $featDetails = foreach ($feat in @($Project.Creature.ExpandedFeats)) {
+        [pscustomobject][ordered]@{
+            name = $feat.Name
+            category = $feat.Category
+            body = $feat.Body
+            raw = $feat.Raw
+        }
+    }
+    $skillDetails = Get-Roll20SkillDetails -Project $Project
+    $ordinaryEntries = foreach ($entry in @($Project.Creature.OrdinaryEntries)) {
+        Convert-LowerEntryToJson -Entry $entry
+    }
+    $lowerSkillsEntry = Convert-LowerEntryToJson -Entry $Project.Creature.LowerSkillsEntry
+    $spellReference = Convert-SpellReferenceToJson -SpellReference $Project.Creature.SpellReference
 
     $spellList = foreach ($spell in @($Project.Creature.Spells)) {
         Convert-ProjectSpellToJson -Spell $spell -Kind 'spell'
@@ -636,8 +935,10 @@ function ConvertFrom-ProjectModelToDnd35Json {
         sq = $Project.Creature.SQ
         feats = @($feats | ForEach-Object { $_ })
         feats_text = $Project.Creature.Feats
+        feat_details = @($featDetails | ForEach-Object { $_ })
         skills = @($skills | ForEach-Object { $_ })
         skills_text = $Project.Creature.Skills
+        skill_details = @($skillDetails | ForEach-Object { $_ })
         combat_gear = @($combatGear | ForEach-Object { $_ })
         combat_gear_text = $Project.Creature.CombatGear
         possessions = @($possessions | ForEach-Object { $_ })
@@ -652,6 +953,9 @@ function ConvertFrom-ProjectModelToDnd35Json {
         spell_like_abilities = @($spellLikeList | ForEach-Object { $_ })
         powers = @($powerList | ForEach-Object { $_ })
         special_abilities = @($specialAbilities | ForEach-Object { $_ })
+        ordinary_entries = @($ordinaryEntries | ForEach-Object { $_ })
+        lower_skills_entry = $lowerSkillsEntry
+        spell_reference = $spellReference
         notes = @($Project.Creature.Notes)
         warnings = @($Project.Warnings)
         source = [pscustomobject][ordered]@{

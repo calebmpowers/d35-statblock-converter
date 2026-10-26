@@ -1,0 +1,16 @@
+Mixed Weapon Natural Alternatives CR 1
+N Small humanoid
+Synthetic regression fixture
+Init +3; Senses Listen +1, Spot +1
+Languages Common
+AC 15, touch 14, flat-footed 12 (+1 size, +3 Dex, +1 natural)
+hp 8 (1 HD)
+Fort +1, Ref +5, Will +1
+Spd 30 ft., climb 20 ft.
+Melee dagger +3 (1d3+1/19-20) and bite -2 (1d4), spear +3 (1d6+1/x3) and bite -2 (1d4), or bite +3 (1d4+1)
+Ranged dagger +5 (1d3+1/19-20) or spear +5 (1d6+1/x3)
+Base Atk +1; Grp -2
+Abilities Str 12, Dex 16, Con 12, Int 10, Wis 12, Cha 8
+Feats Point Blank Shot
+Skills Climb +9
+Possessions dagger, spear

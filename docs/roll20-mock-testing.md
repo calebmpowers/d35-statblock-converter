@@ -14,6 +14,20 @@ Roll20 does not publish a local copy of its Mod/API sandbox runtime. The project
 
 This does not run Roll20's real character sheet workers. It verifies that our importer creates the Roll20 objects and attributes we expect.
 
+Importer 0.6.0 also updates every imported fixture and checks that Character ownership, Attribute/Ability IDs, and repeating-row IDs remain stable. `tests/roll20_mock/managed-lifecycle-tests.js` runs through the same runner and adds conflict, adoption, cleanup, live-state preservation, token/default-token, async readback, locking, partial-failure, and authorization scenarios. The mock now requires asynchronous Character blob reads and rejects direct default-token writes. See [Managed Lifecycle v1](managed-lifecycle-v1.md) for commissioning limits.
+
+Graphic creation rejects underscore-prefixed read-only properties and identity aliases, requires a valid create-time `pageid`, and exposes the parent as `_pageid` on the resulting graphic. Scratch-capture regressions check that writable, unowned saved-token settings survive creation and repeated capture.
+
+After the complete corpus has been imported and updated in one shared world, the runner measures only `state.D35StatblockImporter`. It reports compact JSON UTF-8 bytes, JavaScript UTF-16 code units, Character count, averages, largest manifest, latest report, and linear projections. Isolated lifecycle/failure scenarios use separate worlds and do not contaminate the corpus measurement. The diagnostic helper does not change production state or storage.
+
+Repeat `--json-dir` to combine the saved-payload and freshly converted fixture corpora in one namespace. Each input payload produces one managed Character, including when different files describe the same creature. Save full measurements and corpus SHA-256 fingerprints with `--footprint-json`:
+
+```powershell
+node tests\roll20_mock\run-importer-tests.js --json-dir "Converted JSON" --json-dir "<fresh smoke-output directory>" --footprint-json "<existing output directory>\state-footprint.json"
+```
+
+The regular runner also prints measurements without requiring a new option. Projections use fixed namespace/latest-report overhead plus the measured mean Character-entry size and JSON separators; they are not Roll20 capacity guarantees. See [the recorded measurements and assumptions](state-footprint-2026-10-12.md).
+
 ## Run The Default Mock Test
 
 ```powershell
@@ -35,3 +49,9 @@ The main smoke test now includes the Roll20 mock importer check after converting
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tests\smoke_test.ps1
 ```
+
+## 0.6.0 final-pass coverage
+
+`managed-lifecycle-tests.js` includes `usability-tests.js`: the one-command `!D35` flow, spaced names, safe pre-creation refusals, source-only biography migration/conflicts, deterministic roll arithmetic, later conditional toggles, and Ability ID retention. Arithmetic assertions inspect actual dispatched chat output and compare it to source expectations and unfiltered verified templates. Structural corpus assertions continue inspecting the templates behind dispatchers.
+
+Run `tools/Test-StagedRelease.ps1` after staging release files to export the exact Git index tree to an isolated temporary directory and run the complete release-readiness gate. Evidence is retained; no existing directory is deleted. See [0.6.0 verification and live limits](../Releases/0.6.0.md).

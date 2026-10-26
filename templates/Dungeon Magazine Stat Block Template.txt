@@ -1,47 +1,49 @@
-﻿Character Name                                                                                                    CR XX
+PLAIN-TEXT FALLBACK MIRROR
+The authoritative template is D&D 3.5e Stat Block Template.docx. This mirror cannot preserve bold/italic run metadata.
+
+Creature or Character Name CR XX
 Creature race, templates, and class levels
 Creature alignment, size, and type (subtype)
-Creature reference
+Creature reference: actual published source and page
 Init XXX; Senses XXX; Listen XXX, Spot XXX
 Aura XXX
 Languages XXX
-________________
 
-
-AC XXX, touch XXX, flat-footed XXX; Conditional AC modifiers
-hp XXX (XXX HD); hp related special abilities; DR XXX/XXX
+AC XXX, touch XXX, flat-footed XXX; conditional modifiers
+hp XXX (XXX HD); hp-related abilities; DR XXX/XXX
 Immune XXX
-Resist XXX SR XXX
-Fort XXX, Ref XXX, Will XXX (Conditional save modifiers)
+Resist XXX; SR XXX
+Fort XXX, Ref XXX, Will XXX; conditional modifiers
 Weaknesses XXX
-________________
 
-
-Spd XXX ft., burrow XXX ft., climb XXX ft., fly XXX ft (maneuverability), swim XXX ft.
-Melee weapon +attack bonus (damage/critical hit information plus conditional damage) and/or weapon +attack bonus (damage/critical hit information plus conditional damage)
-Ranged weapon +attack bonus (damage/critical hit information plus conditional damage) and/or weapon +attack bonus (damage/critical hit information plus conditional damage)
+Spd XXX ft.
+Melee weapon +attack (damage/critical)
+Ranged weapon +attack (damage/critical)
 Space XXX; Reach XXX
 Base Atk XXX; Grp XXX
 Atk Options XXX
-Special actions XXX
+Special Actions XXX
 Combat Gear XXX
-Spells Prepared/Known (CL XXX, melee touch XXX, ranged touch XXX):
-Spell level in descending order (number of spells/day)—spell name (DC XXX) 
-Domains/Prohibited schools
-Spell-Like Abilities (CL 3rd, melee touch XXX, ranged touch XXX):
-Number of times per day (fewest to most)—ability name (DC XXX)
-*Use this to indicate any spells or abilities (such as mage armor or Power Attack) that have already been incorporated into its stat block
-________________
-
+Spells Prepared/Known (CL XXX):
+3rd (X/day)-spell name (DC XX), spell name (2)
+Domains/Prohibited Schools XXX
+Spell-Like Abilities (CL XXX):
+At will-ability name
 
 Abilities Str XXX, Dex XXX, Con XXX, Int XXX, Wis XXX, Cha XXX
 SQ XXX
 Feats XXX
-Skills XXX
+Skills Skill +XX, Move Silently +XX (+YY under stated condition)
 Possessions combat gear, XXX
-Spellbook XXX
-*Use this to indicate any inherent bonuses to the creature’s ability scores
-________________
+Spellbook 3rd-unprepared spell, unprepared spell
 
+Feat Name [Type] Full applicable feat text and source citation.
+Other Feature Name (Ex) Full applicable rules text.
+Untyped Named Mechanic - Full applicable rules text.
+Skills Include only distinctive play-relevant skill rules; omit routine arithmetic.
 
-Special Ability Name (Sp/Su/Ex) Special ability description.
+Spell Reference
+3rd-Level Spells
+Spell Name
+School (Subschool) [Descriptor]; final casting time; final range; target/area/effect; final duration; saving throw; spell resistance
+Mechanically relevant published spell body, followed by its source citation.

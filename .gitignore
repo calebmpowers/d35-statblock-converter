@@ -11,3 +11,5 @@ Stat Blocks/
 __pycache__/
 *.pyc
 dist/
+
+.recovery-checkpoints/

@@ -4,6 +4,8 @@ The fixture suite is meant to grow around parser risk. Each raw input lives in `
 
 ## Current Coverage
 
+The suite explicitly covers ordinary lower entries, optional lower Skills, parenthetical conditional totals, stable versus temporary effects, unaffected Power Attack baselines, prepared duplicates, domain/specialist marks, unprepared spellbooks, multi-paragraph spell bodies, the final-ability/Spell-Reference boundary, unmatched warnings, no-spell creatures, DOCX run formatting, plain-text fallback, and resulting Roll20 character fields.
+
 | Case | Fixture |
 | --- | --- |
 | Simple martial creature | `Goblin Raider.txt` |

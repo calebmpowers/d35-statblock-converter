@@ -1,0 +1,40 @@
+Class Feature Pirate CR 2
+Human rogue 1/fighter 1/swashbuckler 1
+CE Medium humanoid
+Synthetic regression fixture
+Init +1; Senses normal
+Languages Common
+AC 15, touch 11, flat-footed 14; Dodge +1, dodge bonus +1
+hp 18 (2 HD)
+Fort +6, Ref +3, Will +1
+Spd 30 ft.
+Melee scimitar +4 (1d6+2/18-20)
+Base Atk +1; Grp +3
+Atk Options set spear against charge, sneak attack +1d6
+Combat Gear potion of blur, potion of haste
+Abilities Str 15, Dex 12, Con 14, Int 8, Wis 13, Cha 10
+SQ trapfinding
+Feats Dodge, Improved Toughness (+1 hp/HD), Two-Weapon Fighting
+Skills Climb +5
+Skill Tricks Acrobatic Backstab
+Possessions combat gear, scimitar, spear, cloak of resistance +1, +1 keen rapier, bracelet worth 1,000 gp
+Acrobatic Backstab [Movement Skill Trick] Once per encounter, a successful Tumble check can leave the target flat-footed against the pirate's next melee attack.
+Blur The pirate carries a potion of blur that grants concealment for 3 minutes.
+Cloak of Resistance The pirate's cloak grants a +1 resistance bonus on saving throws.
+Dawn Council Affiliation The pirate gains a conditional bonus when representing the council.
+Dodge [General] The pirate designates one opponent and gains a +1 dodge bonus to Armor Class against that opponent.
+Grace (Ex) The swashbuckler gains a +1 competence bonus on Reflex saves.
+Improved Toughness [General] The pirate gains 1 hit point per Hit Die.
+Keen The pirate's +1 keen rapier has an expanded threat range.
+Potion of Haste The potion grants haste for 5 rounds. While hasted, use these temporary statistics:
+Spd 60 ft.
+AC 16, touch 12, flat-footed 14
+Ref +4
+Melee scimitar +5 (1d6+2/18-20)
+Haste Full Attack scimitar +5/+5 (1d6+2/18-20)
+Ranged spear +4 (1d8+2/x3)
+Skills Tumble +9
+Spear A readied spear deals double damage when set against a charge.
+Sneak Attack (Ex) The pirate deals an extra 1d6 points of damage when it flanks an opponent or when the opponent is denied its Dexterity bonus to AC.
+Trapfinding (Ex) The pirate can use Search to locate traps with a DC higher than 20 and can use Disable Device to disarm magic traps.
+Two-Weapon Fighting The pirate reduces its two-weapon attack penalties while using a light off-hand weapon.

@@ -1,0 +1,19 @@
+Parenthesized Save Option CR 1
+Usually CE Medium humanoid (reptilian)
+Synthetic regression fixture
+Init +0; Senses darkvision 90 ft.; Listen -1, Spot -1
+Languages Draconic
+AC 16, touch 10, flat-footed 16 (+6 natural)
+hp 22 (2 HD)
+Fort +6, Ref +0, Will -1
+Spd 30 ft.
+Melee morningstar +1 (1d8) and claw -1 (1d4) and bite -1 (1d4), or 2 claws +1 each (1d4) and bite -1 (1d4)
+Base Atk +1; Grp +1
+Atk Options stench (Fort DC 16)
+Abilities Str 11, Dex 10, Con 17, Int 8, Wis 9, Cha 8
+Feats Ability Focus (stench)
+Skills Hide +9
+Possessions morningstar
+Ability Focus (Stench) [General] The creature gains a +2 bonus to the save DC of its stench special attack.
+Darkvision (Ex) The creature can see in complete darkness out to 90 feet.
+Stench (Ex) Living creatures within 30 feet must succeed on a DC 16 Fortitude save or become sickened.

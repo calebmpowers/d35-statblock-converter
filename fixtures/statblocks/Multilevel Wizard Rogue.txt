@@ -1,0 +1,29 @@
+Multilevel Wizard Rogue CR 3
+Male human wizard 2/rogue 1 (The Seekers)
+LN Medium humanoid (human)
+Synthetic regression fixture
+Init +1; Senses Listen +6, Spot +6
+Languages Common, Draconic
+Affiliation The Seekers 4 (Seeker)
+AC 11, touch 11, flat-footed 10
+hp 11 (3 HD)
+Fort +0, Ref +3, Will +5
+Spd 30 ft.
+Melee dagger -1 (1d4-2/19-20)
+Ranged light crossbow +2 (1d8/19-20)
+Base Atk +1; Grp -1
+Atk Options sneak attack +1d6
+Wizard Spells Prepared (CL 2nd): 1st-alarm, unseen servant 0-detect magic, light
+Abilities Str 7, Dex 13, Con 11, Int 16, Wis 14, Cha 11
+SQ summon familiar (none), trapfinding
+Feats Investigator, Scribe ScrollB
+Skills Gather Information +6, Search +9, Spellcraft +7
+Possessions dagger, light crossbow with 10 bolts, spellbook, 35 gp
+B Wizard bonus feat.
+Investigator [General] The wizard gains a +2 bonus on Gather Information and Search checks.
+Scribe Scroll [Item Creation] The wizard can create scrolls of spells he knows.
+The Seekers Affiliation The wizard has an affiliation score of 4 and receives library benefits at a Seeker lodge.
+Sneak Attack (Ex) The rogue deals an extra 1d6 points of damage against a qualifying target.
+Summon Familiar The wizard has not summoned a familiar.
+Trapfinding (Ex) The rogue can locate and disarm difficult and magical traps.
+Wizard Spellcasting The wizard prepares arcane spells from a spellbook.

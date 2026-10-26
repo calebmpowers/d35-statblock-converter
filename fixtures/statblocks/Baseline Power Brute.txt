@@ -1,0 +1,23 @@
+Baseline Power Brute CR 6
+orc barbarian 6
+CE Medium humanoid (orc)
+Synthetic regression fixture
+Init +1; Senses darkvision 60 ft.; Listen +2, Spot +2
+AC 19, touch 11, flat-footed 18 (+1 Dex, +6 armor, +2 deflection)
+hp 57 (6d12+18)
+Fort +8, Ref +3, Will +4
+Spd 30 ft.
+Melee +1 greataxe +12 (1d12+7/x3)
+Space 5 ft.; Reach 5 ft.
+Base Atk +6; Grp +11
+Atk Options Power Attack
+Abilities Str 20, Dex 12, Con 16, Int 8, Wis 10, Cha 6
+SQ continuous ring ward, trap sense +2
+Feats Cleave, Power Attack, Weapon Focus (greataxe)
+Skills Climb +9, Intimidate +7, Listen +2, Spot +2
+Possessions +1 greataxe, +1 breastplate, ring of protection +2
+Cleave [General] When this creature drops a foe, it may make the feat's granted extra attack.
+Power Attack [General] The creature may take up to a -6 penalty on melee attack rolls and gain the feat's corresponding damage bonus. No fixed value is included in the upper attack.
+Rage The temporary rage bonuses and penalties apply only when rage is activated and do not replace the baseline upper statistics.
+Ring Ward (Su) The continuous ring effect is already included in the baseline Armor Class.
+Trap Sense (Ex) This stable class feature is included where applicable.

@@ -11,7 +11,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Path $PSScriptRoot -Parent
 
 if (-not $Destination) {
-    $Destination = Join-Path $repoRoot 'dist\D35-Statblock-Converter-0.3.2'
+    $releaseVersion = (Get-Content -LiteralPath (Join-Path $repoRoot 'importer_versions.json') -Raw | ConvertFrom-Json).release_version
+    $Destination = Join-Path $repoRoot "dist\D35-Statblock-Converter-$releaseVersion"
 }
 
 if (Test-Path -LiteralPath $Destination) {

@@ -18,7 +18,9 @@ Python is retained only as a legacy recovery/comparison tool. Node.js 18 or late
 
 ## Canonical Format
 
-The supported Roll20 import format is `schema_version: 1` handout JSON. Use `Convert-D35StatBlock.ps1` when you want output intended for the current Roll20 API importer.
+The authoritative authoring format is `templates\D&D 3.5e Stat Block Template.docx`. Its bold lower-entry names, bold Spell Reference headings/spell names, and italic compact spell lines are meaningful input structure. Finished stat blocks do not need hidden tags or a separate conversion copy.
+
+The supported Roll20 import format remains `schema_version: 1` handout JSON. Version 1 now has backward-compatible optional fields for ordinary lower entries, the lower Skills entry, and Spell Reference. Use `Convert-D35StatBlock.ps1` when you want output intended for the current Roll20 API importer.
 
 Converted JSON is treated as local output and is not included in the public source repository.
 
@@ -34,12 +36,12 @@ The app supports:
 - one `.txt` or `.docx` file
 - a folder of `.txt` or `.docx` files
 - handout JSON output
-- inline Roll20 command output
+- legacy inline command output (for older tooling; use Handout JSON with the bundled importer)
 - diagnostic parser-model output
 
 See `Quick Start.md` for the normal workflow.
 
-For reliable source formatting, start with `templates\Dungeon Magazine Stat Block Template.txt` and follow `Stat Block Authoring Guide.md`.
+For reliable source formatting, start with `templates\D&D 3.5e Stat Block Template.docx` and follow `Stat Block Authoring Guide.md`. The `.txt` template is a fallback mirror, not the authority.
 
 ## From a Raw Stat Block to a Roll20 Character and Token
 
@@ -51,13 +53,15 @@ Copy the creature's stat block from your source into a document. Keep the stat b
 
 ### 2. Put it into the supplied template
 
-Open `templates\Dungeon Magazine Stat Block Template.txt` and copy it into a new document. Move the information from the raw stat block into the matching template lines, then remove any line the creature does not use. Replace every `XXX`; do not leave placeholders behind.
+Open `templates\D&D 3.5e Stat Block Template.docx` and save a working copy. Move the information from the raw stat block into the matching template lines, then remove instructions and fields the creature does not use. Replace every `XXX`; do not leave placeholders behind.
 
 Keep the section order and labels such as `Init`, `AC`, `hp`, `Spd`, `Melee`, `Ranged`, `Abilities`, `Feats`, and `Skills`. This is what lets the converter recognize each part. The [Stat Block Authoring Guide](Stat%20Block%20Authoring%20Guide.md) explains spells, special abilities, and the most common formatting mistakes.
 
+Write stable baseline values in the upper block. Put feats, abilities, class/template features, item effects, and named mechanics in the continuous alphabetical lower series. Prepared/known casters add the structured `Spell Reference` after those entries.
+
 ### 3. Save a clean input file
 
-Save one creature per file as a UTF-8 `.txt` file or a normal `.docx` file. A plain-text file is the easiest choice. Put it in the `Stat Blocks` folder, or keep it anywhere you can browse to from the app.
+Save one creature per file as a normal `.docx`. UTF-8 `.txt` remains supported as a conservative fallback, but it cannot carry the authoritative bold/italic structure. Put the file in the `Stat Blocks` folder, or keep it anywhere you can browse to from the app.
 
 ### 4. Convert it
 
@@ -85,11 +89,13 @@ This importer needs a Roll20 game using the compatible D&D 3.5 character sheet. 
 1. In Roll20, create a handout with a memorable name, such as `Goblin Raider Import`.
 2. Open the converted `.dnd35.json` file and paste its entire contents into that handout’s **GM Notes**.
 3. Drag any token image onto the map and select that token.
-4. In chat, run `!d35import <handout name>`, replacing `<handout name>` with the handout's exact name.
+4. In chat, run `!D35 Handout Name`, replacing `Handout Name` with the handout's exact name. For example: `!D35 Tonatiuh`. Names containing spaces work without quotes.
 
-The importer creates the character, fills in the converted data, and binds the selected token to that character. It also sets the token’s health and AC bars. Open the character sheet afterward and quickly check the name, CR, AC, hit points, attacks, skills, and spells.
+The importer creates the Character, fills its sheet, copies the selected image to its portrait, binds the token, sets Bar 1 to current/maximum HP and Bar 2 to AC, applies visibility settings, saves a reusable default token, creates token actions, and verifies stored objects. No flags are required. Missing/invalid selection, multiple tokens, ambiguous handouts, invalid JSON, and unsuitable images fail before Character creation. A token already representing another Character is refused.
 
-If a creature needs manual correction, edit the source stat block, reconvert it, and import the new handout rather than trying to repair raw JSON by hand.
+Bio & Info and NPC Description contain only the canonical source reference, or stay empty when none exists. Rules remain in their sheet sections and Other. Attack actions read current modifiers at each click and omit zero/inactive terms, so later buffs still work. Keep the importer installed to use these actions.
+
+If a creature needs correction, edit the source stat block and reconvert it. Use `!d35import preview <character-id> <handout-id>` and then `!d35import update <character-id> <handout-id>` to update the same managed Character. Repeating the creation command creates a new Character; it never silently overwrites an existing one. See [Managed Lifecycle v1](docs/managed-lifecycle-v1.md) for ownership, adoption, token binding, and audit commands.
 
 ### Convert a single stat block to Roll20 handout JSON
 
@@ -101,7 +107,9 @@ powershell -ExecutionPolicy Bypass -File .\Convert-D35StatBlock.ps1 -Path .\samp
 
 By default, the script writes output to `Converted JSON\<input-name>.dnd35.json`. The JSON is ready to paste into a Roll20 handout's GM Notes and uses `schema_version: 1` with `creature.header`, `creature.defense`, `creature.offense`, and `creature.statistics`.
 
-Skill context such as racial skill bonuses is emitted under `creature.statistics.skill_bonuses`; the Roll20 importer applies those bonuses as skill misc modifiers rather than ranks.
+Skill context such as racial skill bonuses is emitted under `creature.statistics.skill_bonuses`; the Roll20 importer applies only explicit safe modifiers. Parenthetical conditional totals and lower Skills rules are retained as notes and are not added to an already-final upper total.
+
+Complete lower rules are emitted under `creature.ordinary_entries`. `creature.lower_skills_entry` and `creature.spell_reference` remain distinct. Matched Spell Reference text drives the repeating spell macro/detail fields; the complete section, including unmatched entries, is also retained in the character's Other field.
 
 ### Batch conversion
 
@@ -135,7 +143,9 @@ The smoke test verifies:
 - PowerShell conversion of every fixture in `fixtures\statblocks`
 - Expected key fields from `tests\fixture_manifest.json`
 
-Current active fixtures:
+Current active fixtures include the legacy set plus focused current-format cases for baseline Power Attack, conditional skills, prepared and spontaneous Spell References, unmatched spells, multi-paragraph bodies, and DOCX bold/italic extraction.
+
+Legacy fixtures:
 
 - Advanced Ochre Jelly
 - Ashen Grave Swarm
@@ -178,11 +188,19 @@ Create a portable Windows release folder with:
 powershell -ExecutionPolicy Bypass -File .\tools\New-PortableRelease.ps1
 ```
 
+After staging the intended release files, verify that exact Git tree without local recovery files or saved payloads:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Test-StagedRelease.ps1
+```
+
+The staged suite exports to a new temporary directory, runs the complete release-readiness gate there, and retains the evidence without deleting existing files.
+
 To exercise the non-shipping legacy Python comparison converter, run `tests\legacy_python_smoke_test.ps1`. It is deliberately excluded from the release gate.
 
 ## Current Gaps
 
-- The restored Roll20 importer is versioned as `0.3.0` and is covered by local mock sandbox tests. It still needs occasional live Roll20 spot checks because Roll20's real character sheet workers are not available locally.
+- The Roll20 importer is covered by the local mock sandbox, including resulting sheet attributes, spell macros, and token actions. Roll20's real sheet workers and production API sandbox are not available locally, so a live-game spot check remains necessary before release.
 
 ## License and content
 
@@ -191,3 +209,7 @@ The original converter code and documentation are released under the [MIT Licens
 ## Credits
 
 Created and maintained by Caleb M. Powers. Developed with implementation, testing, and documentation assistance from OpenAI Codex.
+
+## Managed Lifecycle v1 (0.6.2)
+
+Select one token and run `!D35 Handout Name` for everyday creation. Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Creation copies the portrait automatically; later `bind` preserves it unless `--avatar` is supplied. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md) and [0.6.2 verification and limitations](Releases/0.6.2.md).
