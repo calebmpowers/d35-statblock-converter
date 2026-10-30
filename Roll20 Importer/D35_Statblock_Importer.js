@@ -2,7 +2,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'D35 Statblock Importer';
-    var VERSION = '0.6.2';
+    var VERSION = '0.7.0';
     var COMMAND = '!d35import';
     var COMMAND_ALIASES = ['!d35import', '!d35importer', '!d35'];
     var PING_COMMAND = '!d35ping';
@@ -2421,11 +2421,13 @@
             var seen = {}, number = 0;
             asArray(model.offenseSection[field]).forEach(function (line) {
                 var text = trim(normalizeText(line.raw || '').replace(/^(?:Melee|Ranged)\s+/i, ''));
-                if (splitAttackConnectors(text, /^,\s*/).length > 1) {
+                // A comma attached to an explicit "or" separates alternatives;
+                // only commas left inside an alternative are ambiguous.
+                var alternatives = splitAttackConnectors(text, /^(?:,?\s+or\s+)/i);
+                if (alternatives.some(function (alternative) { return splitAttackConnectors(alternative, /^,\s*/).length > 1; })) {
                     model.warnings.push('Comma-separated ' + type.toLowerCase() + ' routines are ambiguous; standalone weapons were retained, but no combined routine action was inferred. Source: ' + text);
                     return;
                 }
-                var alternatives = splitAttackConnectors(text, /^(?:,?\s+or\s+)/i);
                 alternatives.forEach(function (alternative) {
                     number += 1;
                     var parts = splitAttackConnectors(alternative, /^(?:\s+and\s+|,\s+)/i);
@@ -2738,7 +2740,7 @@
         var firstBonus = attackBonuses[0] || 0;
         var attackBonusTerms = [
             '@{globalAttackBonus}[Global bonus]',
-            '@{bardicMusicAttackBonus}[Music]',
+            '(@{bardicMusicBonusEnabled}*@{bardicMusicAttackBonus})[Music]',
             '@{spellsAttackBonus}[Spells]',
             '@{powersAttackBonus}[Powers]',
             '@{maneuversStancesAttackBonus}[Man./Sta.]',
@@ -2746,11 +2748,11 @@
             '@{totalAttackConditionsBonus}[Conditions]',
             '(@{fightingDefensivelyEnabled}*@{fightingDefensivelyAttackBonus})[Fi. De.]',
             '(@{combatExpertiseEnabled}*@{combatExpertiseAttackBonus})[Co. Ex.]',
-            '@{smiteEvilAttackBonus}[Smite]'
+            '(@{smiteEvilBonusEnabled}*@{smiteEvilAttackBonus})[Smite]'
         ];
         var damageBonusTerms = [
             '@{globalDamageBonus}[Global bonus]',
-            '@{bardicMusicDamageBonus}[Music]',
+            '(@{bardicMusicBonusEnabled}*@{bardicMusicDamageBonus})[Music]',
             '@{spellsDamageBonus}[Spells]',
             '@{powersDamageBonus}[Powers]',
             '@{maneuversStancesDamageBonus}[Man./Sta.]',
@@ -2758,7 +2760,7 @@
             '@{totalDamageConditionsBonus}[Conditions]',
             '(@{fightingDefensivelyEnabled}*@{fightingDefensivelyDamageBonus})[Fi. De.]',
             '(@{combatExpertiseEnabled}*@{combatExpertiseDamageBonus})[Co. Ex.]',
-            '@{smiteEvilDamageBonus}[Smite]'
+            '(@{smiteEvilBonusEnabled}*@{smiteEvilDamageBonus})[Smite]'
         ];
 
         if (isRanged) {
@@ -4266,7 +4268,7 @@
         });
     }
 
-    function startLifecycle(mode, characterId, handout, msg, options) {
+    function startLifecycle(mode, characterId, handout, msg, options, completed) {
         var store = lifecycleState();
         var manifest = characterId && store.characters[characterId];
         var character = characterId && getObj('character', characterId);
@@ -4279,6 +4281,7 @@
             clearTimeout(commandTimeout);
             delete operationLocks[lockKey];
             if (mode === 'import' && characterId) { delete operationLocks[characterId]; }
+            if (completed) { completed(cloneData(report)); }
         }
         release.active = function () { return !released; };
         function fail(error, partial) {
@@ -4293,7 +4296,11 @@
             storeReport(report);
             release();
         }
-        if (operationLocks[lockKey]) { report.status = 'busy'; reportIssue(report, 'locked', 'character', 'one operation', lockKey); storeReport(report); return; }
+        if (operationLocks[lockKey]) {
+            report.status = 'busy'; reportIssue(report, 'locked', 'character', 'one operation', lockKey); storeReport(report);
+            if (completed) { completed(cloneData(report)); }
+            return;
+        }
         if (characterId && !character) { fail(new Error('Use an existing Character ID.')); return; }
         if (mode === 'adopt' && manifest) { fail(new Error('Character is already managed.')); return; }
         if (mode !== 'import' && mode !== 'adopt' && (!manifest || manifest.manifestVersion !== MANIFEST_VERSION)) {
@@ -4641,8 +4648,42 @@
         on('chat:message', handleInput);
     }
 
+    // Narrow bridge for the optional batch companion. Legacy commands keep their
+    // existing paths; mappings, token policy, writes and verification stay here.
+    function batchPrepare(payload, msg, image, pageId) {
+        if (!msg || !playerIsGM(msg.playerid)) { throw new Error('GM only.'); }
+        var model = buildModel(payload);
+        if (hasFatalValidationIssue(model)) { throw new Error(validateModel(model).join(' ')); }
+        var plan = buildWritePlan(model, null);
+        if (image) {
+            var values = { imgsrc: image.imgsrc, width: image.width, height: image.height, _pageid: pageId };
+            addTokenIntent(plan, { id: 'batch-preview', get: function (key) { return values[key] || ''; } }, null, true);
+        }
+        finishPlan(plan, null, null);
+        return { name: model.name, attributes: Object.keys(plan.attributes).length,
+            abilities: Object.keys(plan.abilities).length, warnings: validateModel(model),
+            token: cloneData(plan.defaultToken || plan.tokenPolicy) };
+    }
+
+    function batchRun(mode, characterId, handout, msg, tokenId, completed) {
+        if (!msg || !playerIsGM(msg.playerid) || ['import', 'audit'].indexOf(mode) === -1) {
+            throw new Error('GM batch import/audit only.');
+        }
+        startLifecycle(mode, characterId, handout, msg, { tokenId: tokenId || null }, completed);
+    }
+
     return {
-        registerEventHandlers: registerEventHandlers
+        registerEventHandlers: registerEventHandlers,
+        batchV1: {
+            prepare: batchPrepare, run: batchRun,
+            read: function (handout, callback) { loadHandoutPayload(handout, callback); },
+            image: function (url) {
+                var normalized = normalizeRoll20ImageUrl(url, 'thumb');
+                return /^https:\/\/\S+\?\S+$/.test(normalized) && normalized.length <= 2048 ? normalized : '';
+            },
+            sameImage: function (a, b) { return sameValue(a, b, 'imgsrc'); },
+            name: function (value) { return normalizeNameTarget(value).toLowerCase(); }
+        }
     };
 }());
 

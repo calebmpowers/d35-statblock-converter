@@ -24,4 +24,4 @@ Feats Alertness, Power Attack, Toughness
 Skills Climb +14, Listen +8, Spot +8
 Possessions masterwork longspear
 
-Rend (Ex) If a dire ape veteran hits with both claw attacks, it latches onto the opponent's body and tears the flesh.
+Rend (Ex) Synthetic two-hit probe: require both claw results before exposing the extra-damage record.

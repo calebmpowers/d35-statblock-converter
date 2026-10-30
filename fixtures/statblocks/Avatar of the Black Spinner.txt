@@ -41,9 +41,9 @@ Possessions 2 daggers, shortbow with 20 arrows, unholy symbol of the Black Spinn
 ________________
 
 
-Poison (Ex) Injury, Fortitude DC 16, initial and secondary damage 1d6 Str. The save DC is Constitution-based.
+Poison (Ex) Synthetic saving-throw probe: Fortitude DC 16; Strength damage samples 1d6 and 1d6.
 Abyssal Web Step (Su) Once per encounter as a standard action, the avatar initiates shadow jaunt. It vanishes into a rent of sticky darkness and teleports up to 50 feet to a destination to which it has line of sight and line of effect.
 Rebuke Undead (Su) The avatar can rebuke or command undead 6 times per day as a 1st-level evil cleric.
 Spellcasting The avatar casts divine spells as a 7th-level cleric because its added cleric level stacks with the drider's innate cleric spellcasting. It uses the Evil and Trickery domains, can spontaneously convert prepared non-domain spells into inflict spells, and cannot cast good spells.
 Spell-Like Abilities The avatar retains the drider spell-like abilities granted by its manifestation. Save DCs are Charisma-based.
-Skills The avatar has a +4 racial bonus on Hide and Move Silently checks. It has a +8 racial bonus on Climb checks and can always choose to take 10 on Climb checks, even if rushed or threatened.
+Skills The synthetic skill probes: racial Hide and Move Silently modifiers +4; Climb +8; take-10 sample enabled.

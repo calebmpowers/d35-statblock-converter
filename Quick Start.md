@@ -69,6 +69,21 @@ Run the payload validator:
 powershell -ExecutionPolicy Bypass -File .\tools\Test-Roll20ImporterPayload.ps1
 ```
 
-## Managed Lifecycle v1 (0.6.2)
+## Managed Lifecycle v1 (0.7.0)
 
 For corrections, reconvert and replace the handout JSON, then use `!d35 preview <character-id> <handout-id>` followed by `!d35 update <character-id> <handout-id>`. This retains the Character and protects live HP, spent spells, manual additions, and encounter tokens. Creation copies the portrait automatically; later `bind` changes it only with `--avatar`. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md).
+
+## Optional batch importing in v0.7.0
+
+1. Install `Roll20 Importer/D35_Statblock_Importer.js` once. Optionally add `Roll20 Importer/D35_Batch_Importer.js` below it as a separate Mod; do not enable a second core copy.
+2. Upload images through Roll20 and register them once using `!d35batch register-selected` on named GM-layer graphics, or `!d35batch register HANDOUT_ID` with an image manifest.
+3. Put one batch envelope containing up to five existing schema-v1 payloads into one GM-only Handout. Keep player visibility and editors blank.
+4. Run `!d35batch preview HANDOUT_ID`, review conflicts and missing image keys, then run `!d35batch apply HANDOUT_ID` once. No selected tokens are required.
+5. Read the summary and `!d35batch status`. The same unchanged batch can be retried after restart; completed items are audited, not recreated. Blocked/partial output needs explicit lifecycle review.
+
+The full envelope, limits and recovery rules are in [batch importing](docs/batch-import-prototype.md). Spells/effects, resources and legal modifier use remain GM-controlled. Back up a game before replacing an installed core script; preserve managed state and staging tokens. Older Characters need explicit managed preview/update to acquire the newly gated modifiers or newly recognized routines.
+
+
+## Spell-library attribution and licensing
+
+All 696 original Moonpile spell macros remain bundled, unchanged and redistributed with permission. SRD rules text follows OGL 1.0a; original D35 software remains MIT. See [game-content notices](licenses/GAME-CONTENT.md) and [library setup / optional external path](Spell%20Macros/README.md).

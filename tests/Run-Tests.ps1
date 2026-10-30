@@ -25,4 +25,12 @@ else {
     Write-Host 'No saved payloads to validate; smoke-test payloads were validated by the Roll20 mock test.'
 }
 
+$batchNode = $NodePath
+if (-not $batchNode) { $batchNode = (Get-Command node -ErrorAction Stop).Source }
+& $batchNode (Join-Path $PSScriptRoot 'roll20_mock\batch-tests.js')
+if ($LASTEXITCODE -ne 0) { throw 'Batch importer regression tests failed.' }
+
+& (Join-Path $PSScriptRoot 'spell-library-tests.ps1')
+if (-not $?) { throw 'Spell-library regression tests failed.' }
+
 Write-Host 'All release tests passed.'

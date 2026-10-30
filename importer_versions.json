@@ -1,15 +1,16 @@
 {
   "project": "D35 Statblock Importer",
-  "release_version": "0.6.2",
+  "release_version": "0.7.0",
   "workspace_root": ".",
   "versions": [
     {
       "id": "current_chat_version",
       "name": "D35StatblockImporter",
-      "version": "0.6.2",
-      "source": "user_pasted_chat_script",
+      "version": "0.7.0",
+      "source": "maintained_project_source",
       "file": "D35_Statblock_Importer.js",
       "notes": [
+        "0.7.0: optional bounded batch import, persistent Library image registration, explicit alternative attack routines, and enabled-only Smite/bardic-music terms; schema-v1 and managed-state v1 preserved",
         "0.6.2: emit labeled numeric attack modifiers before chat, avoiding unresolved Character IDs in live rolls",
         "0.6.1: corroborated absent-ability PC display handling and in-place pending-import audit recovery",
         "0.6.0: one-command selected-token import, source-only biography, live compact attack actions, recovered parser fixes, and managed lifecycle regression coverage",
@@ -38,6 +39,11 @@
     "tests/smoke_test.ps1",
     "tests/roll20_mock_test.ps1",
     "tools/Test-Roll20ImporterPayload.ps1",
-    "tools/statblock_converter.py"
+    "tools/statblock_converter.py",
+    "D35_Batch_Importer.js",
+    "docs/batch-import-prototype.md",
+    "tests/roll20_mock/batch-tests.js",
+    "licenses",
+    "tests/spell-library-tests.ps1"
   ]
 }

@@ -168,6 +168,40 @@ function runLifecycleTests(importer) {
         assert.ok(!names.includes('Rapier (Melee)'));
     });
 
+    test('explicit comma-or natural alternatives retain secondary bonuses and primary attack count', (h) => {
+        const data = payload();
+        data.creature.statistics.abilities_line = 'Abilities Str 10, Dex 9, Con 14, Int 8, Wis 10, Cha 10';
+        data.creature.offense.base_attack_line = 'Base Atk +1; Grp +1';
+        data.creature.offense.melee_lines = [{ raw: 'Melee club +1 (1d6) and claw -1 (1d4) and bite -1 (1d4), or 2 claws +1 each (1d4) and bite -1 (1d4)',
+            fragments: [{raw:'club +1 (1d6)'},{raw:'claw -1 (1d4)'},{raw:'bite -1 (1d4)'},{raw:'2 claws +1 each (1d4)'}] }];
+        const c = h.create(data);
+        const outputs = [];
+        ['melee routine 1', 'melee routine 2'].forEach(key => {
+            const ability = h.world.getObj('ability', c.manifest.owned.abilities[key]);
+            assert.ok(ability, key);
+            const before = h.world.chat.length;
+            h.send(ability.get('action').replace('@{character_id}', c.character.id).replace(/^!d35import /, ''));
+            outputs.push(h.world.chat.slice(before).filter(entry => entry.who === 'character|' + c.character.id).map(entry => entry.message));
+        });
+        assert.strictEqual(outputs[0].length, 3, 'club, secondary claw, secondary bite');
+        assert.strictEqual(outputs[1].length, 2, 'two primary claws in one card, then secondary bite');
+        assert.ok(!outputs[0][0].includes('2[Attack adjustment]'));
+        assert.ok(outputs[0][1].includes('- 2[Attack adjustment]'));
+        assert.ok(outputs[0][2].includes('- 2[Attack adjustment]'));
+        assert.ok(outputs[1][0].includes('{{attack2='), 'both primary claws must roll');
+        assert.ok(outputs[1][1].includes('- 2[Attack adjustment]'));
+        assert.ok(!h.report().issues.length);
+    });
+
+    test('commas within an alternative remain blocked rather than guessed', (h) => {
+        const data = payload();
+        data.creature.offense.melee_lines = [{ raw:'Melee club +1 (1d6), claw -1 (1d4), or bite -1 (1d4)',
+            fragments:[{raw:'club +1 (1d6)'},{raw:'claw -1 (1d4)'},{raw:'bite -1 (1d4)'}] }];
+        const c = h.create(data);
+        assert.ok(!c.manifest.baseline.attackMacros['melee routine 1']);
+        assert.ok(h.report().warnings.some(warning => warning.includes('Comma-separated melee routines are ambiguous')));
+    });
+
     [false, true].forEach((consume) => test('initial recalc request verifies with worker consumption=' + consume, (h) => {
         h.world.emulateRecalc = consume;
         h.world.workerDelay = 25;

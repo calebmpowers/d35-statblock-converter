@@ -174,6 +174,23 @@ function runUsabilityTests(test, payload, verified) {
         assert.strictEqual(values(h,c,click(h,c,'dagger'),'attack',false)[0], 5);
     });
 
+    test('unchecked Smite and bardic music add nothing; enabling them affects attack, confirmation and damage', (h) => {
+        const c = h.create();
+        const original = click(h,c,'dagger');
+        const baseline = field => values(h,c,original,field,false)[0];
+        set(h,c,'smiteEvilAttackBonus',2); set(h,c,'smiteEvilDamageBonus',3);
+        set(h,c,'bardicMusicAttackBonus',1); set(h,c,'bardicMusicDamageBonus',1);
+        [false,true,false].forEach(enabled => {
+            set(h,c,'smiteEvilBonusEnabled',enabled ? 1 : 0);
+            set(h,c,'bardicMusicBonusEnabled',enabled ? 1 : 0);
+            const macro = click(h,c,'dagger');
+            ['attack','critconfirm','damage','critdmg'].forEach(field => {
+                const extra = enabled ? (/^(attack|critconfirm)$/.test(field) ? 3 : 4) : 0;
+                assert.strictEqual(values(h,c,macro,field,false)[0],baseline(field)+extra);
+            });
+        });
+    });
+
     test('ranged attacks exclude melee conditions while later ranged toggles affect rolls', (h) => {
         const c = h.create();
         const key = 'light crossbow';
