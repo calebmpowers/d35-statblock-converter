@@ -1,5 +1,15 @@
 'use strict';
 
+const pinDefaults = {
+    x: 0, y: 0, bgColor: '#242424', shape: 'teardrop', icon: 'base-dot', pinImage: '',
+    customizationType: 'icon', useTextIcon: false, iconText: '', tooltipImageSize: 'medium',
+    link: '', linkType: '', subLink: '', subLinkType: '', title: '', notes: '', gmNotes: '',
+    tooltipImage: '', visibleTo: '', autoNotesType: '', tooltipVisibleTo: 'all',
+    tooltipTitleVisibleTo: 'all', nameplateVisibleTo: 'all', imageVisibleTo: 'all',
+    notesVisibleTo: 'all', gmNotesVisibleTo: 'all', scale: 1,
+    imageDesynced: false, notesDesynced: false, gmNotesDesynced: false
+};
+
 class Roll20Object {
     constructor(world, type, id, attrs) {
         this._world = world;
@@ -9,6 +19,12 @@ class Roll20Object {
         this._attrs.id = id;
         this._attrs._type = type;
         this._attrs.type = type;
+
+        if (type === 'pin') {
+            this._attrs = Object.assign({}, pinDefaults, this._attrs);
+            this._attrs._pageid = this._attrs.pageid || '';
+            delete this._attrs.pageid;
+        }
 
         if (type === 'graphic') {
             this._attrs._pageid = this._attrs.pageid;
@@ -42,6 +58,10 @@ class Roll20Object {
 
     set(prop, value) {
         const changes = typeof prop === 'string' ? { [prop]: value } : prop || {};
+        if (this._world.strictPins && this._attrs._type === 'pin' &&
+                Object.keys(changes).some(k => k.startsWith('_') || ['id', 'type', 'pageid'].includes(k))) {
+            throw new Error('Pin identity and parent properties are read-only after creation.');
+        }
         if (this._attrs._type === 'character' && ['defaulttoken', '_defaulttoken'].some((key) => key in changes)) {
             throw new Error('The saved default token is read-only; use setDefaultTokenForCharacter.');
         }
@@ -81,7 +101,7 @@ class Roll20Object {
     }
 }
 
-function createRoll20Mock() {
+function createRoll20Mock(options = {}) {
     let nextId = 1;
     const objects = [];
     const handlers = {};
@@ -133,6 +153,7 @@ function createRoll20Mock() {
         logs,
         state: {},
         hooks: {},
+        strictPins: options.strictPins === true,
         suspendBlobs: false,
         defaultCapture: 'normal',
         workerWrites: [],
@@ -161,6 +182,14 @@ function createRoll20Mock() {
 
         createObj(type, attrs) {
             const normalized = normalizeType(type);
+            if (world.strictPins && normalized === 'pin') {
+                if (Object.keys(attrs || {}).some(k => k.startsWith('_') || ['id', 'type'].includes(k))) {
+                    throw new Error('Read-only pin create property.');
+                }
+                if (!attrs || typeof attrs.pageid !== 'string' || !world.getObj('page', attrs.pageid)) {
+                    throw new Error('Pin creation requires a valid pageid.');
+                }
+            }
             if (normalized === 'graphic') {
                 const readOnly = Object.keys(attrs || {}).find((key) => key.startsWith('_') ||
                     ['id', 'type', 'subtype', 'cardid'].includes(key));

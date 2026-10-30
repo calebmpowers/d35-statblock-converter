@@ -1,0 +1,7 @@
+{
+  "kind": "synthetic-only; no adventure content",
+  "title": "EX 1.1 — Arrival",
+  "heading": "Arrival",
+  "source_html": "<h3>Arrival</h3><blockquote><p>Source flavor only.</p><p>Second source paragraph.</p></blockquote><p><strong>Creatures:</strong> Synthetic GM detail.</p><h3>Next</h3><blockquote><p>Never borrow this.</p></blockquote>",
+  "expected_native_flavor": "Source flavor only.\nSecond source paragraph."
+}
