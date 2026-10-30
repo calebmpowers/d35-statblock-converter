@@ -1,4 +1,6 @@
-# D35 Statblock Converter
+# D35 Statblock Converter v0.7.0
+
+Optional bounded Roll20 batch importing is included in this version. The Windows converter, schema-v1 payloads and single-Character workflow remain compatible with v0.6.2. See [0.7.0 scope and limitations](Releases/0.7.0.md).
 
 A portable Windows application for converting D&D 3.5 stat blocks into Roll20-ready JSON and importing them with the included Roll20 API script.
 
@@ -210,6 +212,21 @@ The original converter code and documentation are released under the [MIT Licens
 
 Created and maintained by Caleb M. Powers. Developed with implementation, testing, and documentation assistance from OpenAI Codex.
 
-## Managed Lifecycle v1 (0.6.2)
+## Managed Lifecycle v1 (0.7.0)
 
 Select one token and run `!D35 Handout Name` for everyday creation. Updates use explicit Character and handout IDs; `preview` checks conflicts before `update`, and `audit` verifies stored Roll20 objects. Creation copies the portrait automatically; later `bind` preserves it unless `--avatar` is supplied. Existing unmanaged Characters require explicit `adopt` before updates. See [commands, preservation rules, and commissioning](docs/managed-lifecycle-v1.md) and [0.6.2 verification and limitations](Releases/0.6.2.md).
+
+## Optional batch Character and default-token import
+
+Install the bundled core importer once, then install `Roll20 Importer/D35_Batch_Importer.js` as a second Mod below it. Keep only one core importer active. Existing `!D35` and managed lifecycle commands retain their paths; installing the companion adds `!d35batch`.
+
+Upload images with the normal Roll20 UI and register their creature keys once, either from named GM-layer graphics selected together (`!d35batch register-selected`) or a GM-only image manifest. Paste up to five existing schema-v1 payloads into one private batch Handout. Preview with `!d35batch preview HANDOUT_ID`, then apply once with `!d35batch apply HANDOUT_ID`. No individual token selection is required for import. Repeating the same batch audits its existing outputs instead of creating duplicates.
+
+See [batch setup, envelope and recovery](docs/batch-import-prototype.md). Art Library enumeration/uploads, token rendering and campaign asset discovery are outside this release.
+
+Build portable artifacts only from the verified staged Git export or an archive of the approved release commit. The portable packager recursively copies its declared folders; a dirty workspace can contain unrelated untracked files. Preserve local work and use an explicit release file list when staging.
+
+
+## Spell-library attribution and licensing
+
+All 696 original Moonpile spell macros remain bundled, unchanged and redistributed with permission. SRD rules text follows OGL 1.0a; original D35 software remains MIT. See [game-content notices](licenses/GAME-CONTENT.md) and [library setup / optional external path](Spell%20Macros/README.md).

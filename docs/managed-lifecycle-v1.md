@@ -1,4 +1,4 @@
-# Managed Lifecycle v1 — importer 0.6.2
+# Managed Lifecycle v1 — importer 0.7.0
 
 This milestone extends the existing PowerShell → schema version 1 handout → Roll20 Mod pipeline. The parser, converter JSON schema, local app, and stat-block authoring contract are unchanged.
 
@@ -188,3 +188,13 @@ Verified locally on 2026-10-12: the full release-readiness gate (PowerShell synt
 ## Pre-commissioning compatibility and diagnostics
 
 The scratch-graphic compatibility follow-up keeps the v1 state architecture unchanged. The stricter mock rejects read-only graphic create properties and requires a real page via `pageid`; resulting graphics expose `_pageid`. See [the state-footprint measurements](state-footprint-2026-10-12.md) for the shared-corpus diagnostic, assumptions, and projections.
+
+## v0.7.0 compatibility and optional batches
+
+Schema-v1 payloads and managed manifest/state v1 are retained. The optional [batch coordinator](batch-import-prototype.md) calls this same model, write plan, lifecycle and stored-object verifier; it does not duplicate field mappings. Single-Character commands, ownership/conflict rules and pending-import review remain available without the companion.
+
+Explicit comma-or alternatives are split before the remaining-comma ambiguity guard. New plans can create both complete natural-attack alternatives while retaining exact secondary bonuses and repeated primary attacks. Ambiguous comma-only lists remain warnings. Smite and bardic-music attack/damage terms use their existing sheet enable flags, including confirmation and extra critical damage.
+
+These two construction fixes do not rewrite existing Characters when the script loads. Existing signed actions remain usable. Use the established explicit preview/update path to acquire a new plan for an older Character; do not reimport it. Preserve all existing managed state and identifiers.
+
+Spells remain reference cards where supplied; the GM resolves effects, resources and eligibility. Smite remains a shared melee/ranged numeric flag, so it must be enabled only for eligible attacks. Unsupported custom modifier formulas still fail closed.

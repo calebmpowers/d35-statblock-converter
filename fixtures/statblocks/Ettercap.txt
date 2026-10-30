@@ -26,10 +26,10 @@ Skills Climb +10, Craft (trapmaking) +4, Hide +9, Listen +4, Spot +8
 ________________
 
 
-Poison (Ex) Injury, Fortitude DC 15, initial damage 1d6 Dex, secondary damage 2d6 Dex. The save DC is Constitution based and includes a +2 racial bonus.
-Web (Ex) An ettercap can throw a web eight times per day. This is similar to an attack with a net but has a maximum range of 50 feet, with a range increment of 10 feet, and is effective against targets of up to Medium size. The web anchors the target in place, allowing no movement.
-An entangled creature can escape with a DC 13 Escape Artist check or burst the web with a DC 17 Strength check. The check DCs are Constitution-based, and the Strength check DC includes a +4 racial bonus. The web has 6 hit points, hardness 0, and takes double damage from fire.
-Ettercaps can also create sheets of sticky webbing from 5 to 60 feet square. They usually position these to snare flying creatures but can also try to trap prey on the ground. Approaching creatures must succeed on a DC 20 Spot check to notice a web, or they stumble into it and become trapped as though by a successful web attack. Attempts to escape or burst the webbing receive a +5 bonus if the trapped creature has something to walk on or grab while pulling free.
-Each 5-foot-square section has 6 hit points, hardness 0, and takes double damage from fire.
-An ettercap can move across its own sheet web at its climb speed and can determine the exact location of any creature touching the web.
-Skills Ettercaps have a +4 racial bonus on Craft (trapmaking), Hide, and Spot checks. They have a +8 racial bonus on Climb checks and can always choose to take 10 on Climb checks, even if rushed or threatened.
+Poison (Ex) Synthetic saving-throw probe: Fortitude DC 15; Dexterity damage samples 1d6 and 2d6; racial DC adjustment +2.
+Web (Ex) Synthetic restraint probe: 8 daily uses; 50-ft. maximum range; 10-ft. increment; Medium target limit.
+An artificial escape record uses Escape Artist DC 13 and Strength DC 17; the restraint sample has 6 hp and hardness 0.
+An independent detection record uses Spot DC 20; test areas span 5 to 60 ft. and a support surface supplies a +5 escape sample.
+Each synthetic area cell has 6 hp, hardness 0, and a fire-damage multiplier of 2.
+An internal traversal record links the fixture movement rate to the restraint sample.
+Skills The synthetic skill probes: racial modifiers +4 for Craft (trapmaking), Hide and Spot; Climb +8; take-10 sample enabled.

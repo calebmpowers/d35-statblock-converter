@@ -30,6 +30,7 @@ foreach ($file in @(
     'Dnd35JsonTools.psm1',
     'DungeonStatBlockParser.psm1',
     'D35_Statblock_Importer.js',
+    'D35_Batch_Importer.js',
     'importer_versions.json',
     'sample-dungeon-statblock.txt',
     'LICENSE',
@@ -41,7 +42,7 @@ foreach ($file in @(
     Copy-Item -LiteralPath (Join-Path $repoRoot $file) -Destination (Join-Path $Destination $file)
 }
 
-foreach ($folder in @('Roll20 Importer', 'Spell Macros', 'templates', 'tests', 'fixtures', 'tools', 'Releases', 'docs')) {
+foreach ($folder in @('Roll20 Importer', 'Spell Macros', 'templates', 'tests', 'fixtures', 'tools', 'Releases', 'docs', 'licenses')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot $folder) -Destination (Join-Path $Destination $folder) -Recurse
 }
 

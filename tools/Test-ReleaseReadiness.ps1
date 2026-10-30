@@ -24,6 +24,7 @@ function Assert-RequiredPath {
     'Dnd35JsonTools.psm1',
     'DungeonStatBlockParser.psm1',
     'D35_Statblock_Importer.js',
+    'D35_Batch_Importer.js',
     'LICENSE',
     'NOTICE.md',
     'Stat Block Authoring Guide.md',
@@ -33,13 +34,25 @@ function Assert-RequiredPath {
     'Quick Start.md',
     'Roll20 Importer\README.md',
     'Roll20 Importer\D35_Statblock_Importer.js',
-    'Spell Macros'
+    'Roll20 Importer\D35_Batch_Importer.js',
+    'Spell Macros\README.md',
+    'licenses\OGL-1.0a.txt',
+    'licenses\GAME-CONTENT.md'
 ) | ForEach-Object { Assert-RequiredPath -RelativePath $_ }
+
+$spellCount = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Spell Macros') -File -Filter '*.txt').Count
+if ($spellCount -ne 696) { throw "Expected 696 bundled spell macros; found $spellCount." }
 
 $rootImporter = Join-Path $repoRoot 'D35_Statblock_Importer.js'
 $bundledImporter = Join-Path $repoRoot 'Roll20 Importer\D35_Statblock_Importer.js'
 if ((Get-FileHash -LiteralPath $rootImporter).Hash -ne (Get-FileHash -LiteralPath $bundledImporter).Hash) {
     throw 'The bundled Roll20 importer does not match the canonical root importer.'
+}
+
+$rootBatch = Join-Path $repoRoot 'D35_Batch_Importer.js'
+$bundledBatch = Join-Path $repoRoot 'Roll20 Importer\D35_Batch_Importer.js'
+if ((Get-FileHash -LiteralPath $rootBatch).Hash -ne (Get-FileHash -LiteralPath $bundledBatch).Hash) {
+    throw 'The bundled batch companion does not match the canonical root companion.'
 }
 
 $scriptFiles = Get-ChildItem -LiteralPath $repoRoot -Recurse -File | Where-Object { $_.Extension -in @('.ps1', '.psm1') }
