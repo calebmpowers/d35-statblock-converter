@@ -1,0 +1,38 @@
+{
+  "title": "Synthetic Map",
+  "source": {
+    "asset_id": "synthetic-map",
+    "filename": "Synthetic Map.jpg",
+    "url": "https://example.invalid/synthetic-map",
+    "pixel_width": 1000,
+    "pixel_height": 800,
+    "columns": 10,
+    "rows": 8,
+    "distance_per_cell": 5,
+    "units": "ft",
+    "authority": "Entirely synthetic test fixture; full image and alignment explicitly specified."
+  },
+  "page_settings": {
+    "width": 10,
+    "height": 8,
+    "scale_number": 5,
+    "scale_units": "ft",
+    "grid_type": "square",
+    "snapping_increment": 1,
+    "showgrid": true,
+    "grid_offset_x": 0,
+    "grid_offset_y": 0
+  },
+  "placement": {
+    "width": 700,
+    "height": 560,
+    "left": 350,
+    "top": 280,
+    "rotation": 0,
+    "layer": "map",
+    "fliph": false,
+    "flipv": false
+  },
+  "crop": "full",
+  "visibility": "gm_only"
+}
