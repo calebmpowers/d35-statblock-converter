@@ -1,0 +1,7 @@
+{
+  "kind": "gm_adventure",
+  "folder_path": ["Savage Tide Adventure Path", "Example Adventure", "01 Part One"],
+  "folder_ids": ["root", "adventure", "part"],
+  "legacy_source": null,
+  "authority": "Synthetic approved adventure/Part organization; native folder identities supplied explicitly."
+}

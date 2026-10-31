@@ -6,6 +6,24 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 
 function check(ok, message) { if (!ok) throw new Error(message); }
+// Native capture can be shorter than an emulated DOM viewport. Input must fit
+// the captured surface; documentElement.clientHeight alone is insufficient.
+function screenshotSize(bytes) {
+    const b = Buffer.from(bytes || []);
+    if (b.length >= 24 && b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))
+        return {width:b.readUInt32BE(16),height:b.readUInt32BE(20)};
+    if (b.length >= 4 && b[0] === 255 && b[1] === 216) {
+        for (let i=2;i+3<b.length;) {
+            if (b[i++] !== 255) continue;
+            const marker=b[i++], length=b.readUInt16BE(i);
+            if ([192,193,194].includes(marker) && i+7<=b.length)
+                return {width:b.readUInt16BE(i+5),height:b.readUInt16BE(i+3)};
+            if (length<2 || i+length>b.length) break;
+            i+=length;
+        }
+    }
+    throw new Error('Cannot verify captured browser surface dimensions. No move attempted.');
+}
 function imageId(url) {
     const match = /^https:\/\/(?:files\.d20\.io|s3\.amazonaws\.com\/files\.d20\.io)\/images\/(\d+)\/([A-Za-z0-9_-]+)\/(?:thumb|med|max|original)\.(?:png|jpe?g|gif|webp)(?:\?[^#\s"'<>]+)?$/i.exec(url || '');
     check(match, 'Native viewer does not reference a supported Library image.'); return match[1] + '/' + match[2];
@@ -97,8 +115,9 @@ export async function filePublishedHandout(tab, report) {
     check(report && ['pending_filing', 'verified'].includes(report.status) && report.evidence &&
         report.objectId === report.evidence.handoutId, 'Use the actual importer readback report.');
     const {folderIds, folderPath} = report.evidence, id = report.objectId;
+    const gm = report.kind === 'gm_adventure';
     check(Array.isArray(folderIds) && Array.isArray(folderPath) && folderIds.length === folderPath.length &&
-        folderPath[0] === 'Savage Tide Player Handouts' && [id, ...folderIds].every(s => typeof s === 'string' && /^[-A-Za-z0-9_]+$/.test(s)),
+        folderPath[0] === (gm ? 'Savage Tide Adventure Path' : 'Savage Tide Player Handouts') && [id, ...folderIds].every(s => typeof s === 'string' && /^[-A-Za-z0-9_]+$/.test(s)),
         'Missing or unsupported exact Journal identities.');
     check(await tab.playwright.getByRole('dialog').filter({visible: true}).count() === 0, 'Close Handout dialogs before native filing.');
     await tab.playwright.getByRole('tab', {name: 'journalTab', exact: true}).click();
@@ -116,7 +135,10 @@ export async function filePublishedHandout(tab, report) {
     const target = await destination.evaluate(ancestry), current = await item.evaluate(ancestry);
     check(JSON.stringify(target.ids) === JSON.stringify(folderIds) && JSON.stringify(target.names) === JSON.stringify(folderPath), 'Native destination path differs from Mod readback.');
     if (JSON.stringify(current.ids) === JSON.stringify(folderIds)) return {status: 'already_filed', objectId: id, folderPath, objectWrites: 0};
-    check(report.status === 'pending_filing' && current.ids.length === 0, 'Existing manual filing/move preserved; review rather than automatically reorganizing.');
+    const sourceIds = gm ? report.evidence.sourceFolderIds || [] : [];
+    const sourcePath = gm ? report.evidence.sourceFolderPath || [] : [];
+    check(report.status === 'pending_filing' && JSON.stringify(current.ids) === JSON.stringify(sourceIds) &&
+        JSON.stringify(current.names) === JSON.stringify(sourcePath), 'Existing manual filing/move preserved; review rather than automatically reorganizing.');
     const collapsed = [];
     try {
         // Expand only the intended path. Temporarily collapse unrelated long lists
@@ -128,24 +150,34 @@ export async function filePublishedHandout(tab, report) {
         const others = await panel.locator('li.dd-folder').evaluateAll(els => els.filter(el =>
             !el.parentElement.closest('li.dd-folder') && el.querySelector(':scope > button[data-action="collapse"]')?.style.display !== 'none')
             .map(el => el.getAttribute('data-globalfolderid')));
-        for (const other of others.filter(value => !folderIds.includes(value))) {
+        for (const other of others.filter(value => !folderIds.includes(value) && !sourceIds.includes(value))) {
             check(typeof other === 'string' && /^[-A-Za-z0-9_]+$/.test(other), 'Unsupported Journal folder identity.');
-            await panel.locator('li[data-globalfolderid="' + other + '"] > button[data-action="collapse"]').click(); collapsed.push(other);
+            const collapse = panel.locator('li[data-globalfolderid="' + other + '"] > button[data-action="collapse"]');
+            if (await collapse.isVisible()) { await collapse.click(); collapsed.push(other); }
         }
         const rect = element => {
             const box = element.getBoundingClientRect();
             return {left: box.left, top: box.top, width: box.width, height: box.height,
                 viewportWidth: element.ownerDocument.documentElement.clientWidth, viewportHeight: element.ownerDocument.documentElement.clientHeight};
         };
+        // Native folder collapse animates. Let screenshot capture settle layout
+        // before measuring, otherwise a previously valid row can move mid-drag.
+        await tab.getScreenshot({emit: false});
         const from = await item.evaluate(rect), to = await destination.locator(':scope >.dd-content').evaluate(rect);
         const point = r => [r.left + Math.min(90, r.width / 2), r.top + r.height / 2];
         const a = point(from), b = point(to);
         check([from, to].every((r, n) => r.width > 0 && r.height > 0 && [a, b][n][0] >= 0 && [a, b][n][0] < r.viewportWidth &&
             [a, b][n][1] >= 0 && [a, b][n][1] < r.viewportHeight), 'Drag endpoints do not fit the native viewport; arrange the Journal pane and retry. No move attempted.');
-        await tab.getScreenshot({emit: false}); await tab.drag(a, b);
+        const captured = screenshotSize(await tab.getScreenshot({emit: false}));
+        check([from,to].every(r=>r.viewportWidth===captured.width) &&
+            [a,b].every(p=>p[0]>=0 && p[0]<captured.width && p[1]>=0 && p[1]<captured.height),
+            'Drag endpoints do not fit the captured browser surface ('+captured.width+'x'+captured.height+'). DOM viewport bounds are insufficient. No move attempted.');
+        await tab.drag(a, b);
+        try { await destination.locator('li[data-itemid="' + id + '"]').waitFor({state: 'attached', timeoutMs: 5000}); }
+        catch { /* Verify the actual ancestry below, including unsuccessful drops. */ }
         const actual = await item.evaluate(ancestry);
         check(JSON.stringify(actual.ids) === JSON.stringify(folderIds), 'Native filing did not reach the exact destination. No automatic retry; inspect and audit.');
-        return {status: 'filed', objectId: id, folderPath, next: 'Run !d35asset audit TRANSFER; native DOM filing alone is not completion.'};
+        return {status: 'filed', objectId: id, folderPath, next: 'Run ' + (gm ? '!d35journal' : '!d35asset') + ' audit TRANSFER; native DOM filing alone is not completion.'};
     } finally {
         for (const other of collapsed) {
             const expand = panel.locator('li[data-globalfolderid="' + other + '"] > button[data-action="expand"]');

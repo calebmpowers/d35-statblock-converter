@@ -1,0 +1,35 @@
+'use strict';
+const assert=require('assert');
+const {harness,load}=require('./journal-filing-tests');
+async function main(){let count=0;
+    async function test(name,body){const h=harness();const obj=h.w.createObj('handout',{name:h.pkg.handout.name,inplayerjournals:'',controlledby:'',archived:false});obj.set('notes','<p><br></p>');obj.set('gmnotes','');h.tree()[0].i[0].i[0].i=[obj.id];
+        h.blank=obj;h.run=(action='import',id=obj.id)=>h.send(action,h.input.id+' --target '+id);
+        await body(h);count++;console.log('PASS '+name);}
+    const ok=r=>assert.strictEqual(r.status,'verified',JSON.stringify(r));
+    const bad=(r,re)=>{assert.strictEqual(r.status,'error',JSON.stringify(r));assert.match(r.message,re);};
+    await test('preview validates pristine named target and exact ancestry without writes or reservation',async h=>{const before=h.snapshot();const r=await h.run('preview');assert.strictEqual(r.status,'preview');assert.strictEqual(r.action,'populate');assert.strictEqual(r.objectId,h.blank.id);assert.strictEqual(h.snapshot(),before);assert.deepStrictEqual(Object.keys(h.w.state.D35JournalImporter.journals),[]);});
+    await test('folder-first import populates original ID without creation or folder writes',async h=>{const n=h.w.objects.length,tree=JSON.stringify(h.tree());const r=await h.run();ok(r);assert.strictEqual(r.action,'populated');assert.strictEqual(r.objectId,h.blank.id);assert.strictEqual(h.w.objects.length,n);assert.strictEqual(h.blank._attrs.notes,h.pkg.handout.notes);assert.strictEqual(JSON.stringify(h.tree()),tree);});
+    await test('repeat import preview and audit preserve content and identity without writes',async h=>{await h.run();const before=h.snapshot();h.w.hooks.beforeSet=()=>{throw Error('No writes');};for(const action of ['import','preview','audit'])ok(await h.run(action));ok(await h.send());assert.strictEqual(h.snapshot(),before);});
+    await test('restart retains folder-first identity and readback',async h=>{await h.run();Object.keys(h.w.handlers).forEach(k=>h.w.handlers[k]=[]);load(h.w);ok(await h.run('audit'));assert.strictEqual(h.target().id,h.blank.id);});
+    await test('missing exact target cannot fall back to creation',async h=>{const before=h.snapshot();bad(await h.run('import','-MISSING'),/missing/);assert.strictEqual(h.snapshot(),before);});
+    await test('audit never adopts a pristine target',async h=>{bad(await h.run('audit'),/audit never populates/);assert.deepStrictEqual(Object.keys(h.w.state.D35JournalImporter.journals),[]);});
+    await test('nonempty Notes including literal null prose are refused',async h=>{for(const value of ['<p>Manual words</p>','<p>null</p>','<img src="x">']){h.blank.set('notes',value);const before=h.snapshot();bad(await h.run(),/contains content/);assert.strictEqual(h.snapshot(),before);}});
+    await test('nonempty GM Notes are never overwritten',async h=>{h.blank.set('gmnotes','Private annotation');const before=h.snapshot();bad(await h.run(),/contains content/);assert.strictEqual(h.snapshot(),before);});
+    await test('unsafe permissions are refused rather than repaired',async h=>{h.blank.set('controlledby','all');bad(await h.run(),/permission/);});
+    await test('avatar archive and tags disqualify a pristine target',async h=>{for(const field of ['avatar','archived','tags','_tags']){h.blank.set(field,field==='archived'?true:'manual');bad(await h.run(),/not pristine/);h.blank.set(field,field==='archived'?false:'');}});
+    await test('actual Roll20 serialized empty tags are pristine without clearing tags',async h=>{h.blank.set('tags','[]');h.blank.set('_tags',[]);ok(await h.run());assert.strictEqual(h.blank.get('tags'),'[]');assert.deepStrictEqual(h.blank.get('_tags'),[]);});
+    await test('persisted-empty blob sentinel is accepted only in the pristine-empty context',async h=>{h.blank.set('notes','null');h.blank.set('gmnotes','null');ok(await h.run());assert.strictEqual(h.blank._attrs.notes,h.pkg.handout.notes);});
+    await test('linked pins and pin references disqualify a target',async h=>{h.blank.set('_pins','[{"id":"pin"}]');bad(await h.run(),/pin references/);h.blank.set('_pins','');h.w.createObj('pin',{link:h.blank.id});bad(await h.run(),/linked pin/);});
+    await test('wrong folder and same-name replacement folder are refused',async h=>{h.tree()[0].i[0].i[0].i=[];h.tree()[1].i=[h.blank.id];bad(await h.run(),/placement|approved folder/);h.tree()[1].i=[];h.tree()[0].i[0].i[0].i=[h.blank.id];h.tree()[0].i[0].i[0].id='replacement';bad(await h.run(),/identity changed/);});
+    await test('duplicate title is never resolved by choosing an arbitrary object',async h=>{h.w.createObj('handout',{name:h.pkg.handout.name});bad(await h.run(),/ambiguous/);});
+    await test('renamed target is preserved',async h=>{h.blank.set('name','Manual name');bad(await h.run(),/title missing/);assert.strictEqual(h.blank.get('name'),'Manual name');});
+    await test('existing managed identities cannot be adopted using target mode',async h=>{h.w.state.D35JournalImporter={version:1,journals:{'journal:other':{objectId:h.blank.id,title:'Other',fingerprint:'old'}}};bad(await h.run(),/managed identity/);});
+    await test('normal managed importer objects cannot opt into target mode retroactively',async h=>{h.tree()[0].i[0].i[0].i=[];h.blank.set('name','Unused draft');await h.send();bad(await h.run('import',h.target().id),/existing managed identity/);});
+    await test('different explicit target cannot redirect a bound identity',async h=>{await h.run();const other=h.w.createObj('handout',{name:'Other'});bad(await h.run('import',other.id),/existing managed identity/);});
+    await test('missing plan and legacy migration cannot populate an explicit target',async h=>{delete h.pkg.filing;h.set();bad(await h.run(),/approved destination/);});
+    await test('asynchronous manual content edit is detected before population',async h=>{const original=h.blank.get.bind(h.blank);let reads=0;h.blank.get=(field,cb)=>{const result=original(field,cb);if(field==='notes'&&++reads===1)h.blank.set('notes','<p>Concurrent manual edit</p>');return result;};bad(await h.run(),/changed during preflight/);assert.strictEqual(h.blank._attrs.notes,'<p>Concurrent manual edit</p>');assert.deepStrictEqual(Object.keys(h.w.state.D35JournalImporter.journals),[]);});
+    await test('write failure reserves the ID and never retries as a fresh blank target',async h=>{h.w.hooks.beforeSet=(o,c)=>{if(o.id===h.blank.id&&'notes'in c)throw Error('Write failed');};bad(await h.run(),/Write failed/);const id=h.target().id;h.w.hooks.beforeSet=null;bad(await h.run(),/GM Notes|Stored/);assert.strictEqual(h.target().id,id);});
+    await test('manual edits after successful import fail readback without repair',async h=>{await h.run();h.blank.set('notes','<p>Manual change</p>');bad(await h.run(),/Stored source text/);});
+    console.log('Journal folder-first: '+count+' checks passed.');
+}
+main().catch(e=>{console.error(e.stack);process.exitCode=1;});

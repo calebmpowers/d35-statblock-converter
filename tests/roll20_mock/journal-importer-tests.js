@@ -33,7 +33,8 @@ function harness() {
     function destinations() { return w.findObjs({_type:'handout'}).filter(o=>o.id!==input.id); }
     return {w,api,input,send,set,report,drain,trigger,destinations};
 }
-function verified(r) { assert.strictEqual(r.status,'verified',JSON.stringify(r)); }
+// These original fixtures have no filing plan: content passes, publication stays pending.
+function verified(r) { assert.strictEqual(r.status,'pending_filing',JSON.stringify(r)); assert.strictEqual(r.evidence.contentVerified,true); }
 function error(r, pattern) { assert.strictEqual(r.status,'error',JSON.stringify(r)); if(pattern) assert.match(r.message,pattern); }
 function snapshot(w) { return JSON.stringify(w.objects.map(o=>o.toJSON())); }
 
@@ -312,6 +313,6 @@ async function main() {
             assert.strictEqual(h.w.getObj('handout',r.objectId)._attrs.notes,expected.handout.notes);
         });
     }
-    console.log(JSON.stringify({status:'pass',tests:count,canonicalAcceptance:arg!==-1,mod:'v0.1.0'}));
+    console.log(JSON.stringify({status:'pass',tests:count,canonicalAcceptance:arg!==-1,mod:'v0.1.2'}));
 }
 main().catch(e=>{console.error(e.stack);process.exitCode=1;});

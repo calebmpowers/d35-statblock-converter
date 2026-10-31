@@ -1,5 +1,5 @@
-/* D35 Journal Handout Importer v0.1.0. Standalone; no Character or pin writes.
- * Commands: !d35journal preview|import <exact transfer Handout name or ID>
+/* D35 Journal Handout Importer v0.1.2. No Character, pin or folder writes.
+ * Commands: !d35journal preview|import|audit <exact transfer Handout name or ID>
  * Persistent identity, create-or-verify only. No adoption, overwrite, or deletion.
  */
 var D35JournalImporter = D35JournalImporter || (function () {
@@ -171,7 +171,7 @@ var D35JournalImporter = D35JournalImporter || (function () {
         return /^(?:\s|<\/?(?:p|div|span)>|<br\s*\/?>|&nbsp;)*$/i.test(s);
     }
     function validate(pkg) {
-        fields(pkg,['schema','journal_id','handout']);
+        fields(pkg,own(pkg,'filing') ? ['schema','journal_id','handout','filing'] : ['schema','journal_id','handout']);
         check(pkg.schema==='d35-journal/0.1', 'Unsupported Journal package schema.');
         check(/^[a-z0-9][a-z0-9._:-]{2,159}$/.test(string(pkg.journal_id)), 'Invalid stable journal_id.');
         var h=pkg.handout;
@@ -185,7 +185,63 @@ var D35JournalImporter = D35JournalImporter || (function () {
         check(source.length>0, 'Empty source.');
         semantic(h.navigation_html);
         // Store a content identity independent of harmless serialization changes.
+        if (own(pkg,'filing')) { validateFiling(pkg.filing); }
         return { pkg:pkg, expected:whole, fingerprint:sha256(JSON.stringify([pkg.journal_id,h.name,whole])) };
+    }
+    function validateFiling(p) {
+        fields(p,['kind','folder_path','folder_ids','legacy_source','authority']);
+        check(p.kind==='gm_adventure','GM runtime filing cannot target Player Handouts.');
+        function location(names,ids,min) {
+            check(Array.isArray(names)&&Array.isArray(ids)&&names.length>=min&&names.length<=12&&names.length===ids.length,'Supply exact existing folder names and IDs.');
+            names.forEach(function(n){check(typeof n==='string'&&n&&n===n.trim()&&n.length<=240&&!/[\x00-\x1f]/.test(n),'Invalid folder name.');});
+            ids.forEach(function(id){check(typeof id==='string'&&/^[-A-Za-z0-9_]+$/.test(id),'Invalid folder ID.');});
+        }
+        location(p.folder_path,p.folder_ids,3);
+        check(p.folder_path[0]==='Savage Tide Adventure Path','Use the established GM adventure root.');
+        check(typeof p.authority==='string'&&p.authority&&p.authority===p.authority.trim()&&p.authority.length<=4000&&!/[\x00-\x1f]/.test(p.authority),'Supply approval/organization authority.');
+        if(p.legacy_source!==null) {
+            var old=p.legacy_source;fields(old,['handout_id','folder_path','folder_ids']);
+            check(typeof old.handout_id==='string'&&/^[-A-Za-z0-9_]+$/.test(old.handout_id),'Invalid legacy Handout ID.');
+            location(old.folder_path,old.folder_ids,0);
+            check(!old.folder_path.length||['Savage Tide Adventure Path','Savage Tide Player Handouts'].indexOf(old.folder_path[0])===-1,'Legacy migration cannot reorganize existing adventure or Player Handout placement.');
+        }
+    }
+    function filingFingerprint(p) {return sha256(JSON.stringify([p.kind,p.folder_path,p.folder_ids,p.legacy_source&&[p.legacy_source.handout_id,p.legacy_source.folder_path,p.legacy_source.folder_ids],p.authority]));}
+    function filing(data,obj) {
+        var p=data.pkg.filing,record=store().journals['journal:'+data.pkg.journal_id];
+        if(!p) {
+            check(!record||!record.filing,'Retain the bound filing plan; it cannot be removed silently.');
+            return {contentVerified:!!obj,filed:false,handoutId:obj&&obj.id,folderPath:null,folderIds:null,sourceFolderPath:[],sourceFolderIds:[]};
+        }
+        // Reuse the existing image publisher's generic read-only folder resolver.
+        check(typeof D35ImageAssetPublisher!=='undefined'&&typeof D35ImageAssetPublisher.folders==='function','Install the existing Image Asset Publisher for shared read-only Journal folder resolution.');
+        var location=D35ImageAssetPublisher.folders(p.folder_path,obj&&obj.id),old=p.legacy_source;
+        check(JSON.stringify(location.ids)===JSON.stringify(p.folder_ids),'Destination folder identity changed; no guessing or reorganization.');
+        check(!record||!record.filing||record.filing.fingerprint===filingFingerprint(p),'Bound filing plan changed; existing placement preserved.');
+        if(old) {
+            check(obj&&obj.id===old.handout_id,'Legacy migration requires the exact existing managed Handout; no creation or adoption.');
+        }
+        var refs=location.references;
+        check(refs.length<=1,'Duplicate Journal references; preserve for review.');
+        var filed=!!obj&&refs.length===1&&JSON.stringify(refs[0])===JSON.stringify(p.folder_path);
+        var sourcePath=old?old.folder_path:[],sourceIds=old?old.folder_ids:[];
+        if(obj&&!filed) {
+            check(!record||!record.filing||record.filing.status!=='verified','Previously filed Handout was manually moved; no automatic reorganization.');
+            if(old&&old.folder_path.length) {check(JSON.stringify(D35ImageAssetPublisher.folders(old.folder_path).ids)===JSON.stringify(old.folder_ids),'Legacy source folder identity changed.');}
+            check(JSON.stringify(refs.length?refs[0]:[])===JSON.stringify(sourcePath),'Unexpected manual placement; no automatic move.');
+        }
+        return {contentVerified:!!obj,filed:filed,handoutId:obj&&obj.id,folderPath:p.folder_path,folderIds:location.ids,sourceFolderPath:sourcePath,sourceFolderIds:sourceIds};
+    }
+    function completedReport(data,obj,action,command) {
+        var evidence=filing(data,obj),record=store().journals['journal:'+data.pkg.journal_id];
+        if(command!=='preview') {
+            record.status=evidence.filed?'verified':'pending_filing';
+            if(data.pkg.filing) {record.filing={fingerprint:filingFingerprint(data.pkg.filing),status:record.status,folderIds:evidence.folderIds,folderPath:evidence.folderPath};}
+        }
+        return {status:evidence.filed?'verified':'pending_filing',kind:'gm_adventure',action:action,objectId:obj.id,journal_id:data.pkg.journal_id,evidence:evidence,
+            message:'Verified '+data.pkg.handout.name+' ['+obj.id+']: source text, formatting, headings, navigation, empty GM Notes and GM-only permissions. '+
+                (evidence.filed?'Exact Journal folder verified.':'PUBLICATION INCOMPLETE: '+(data.pkg.filing?'native UI filing into '+evidence.folderPath.join(' / ')+' is pending.':'supply an approved existing adventure/Part filing plan.'))+
+                (action==='preserve'?' No Handout writes.':'')};
     }
     function privateHandout(obj) { check(obj && obj.get('inplayerjournals')==='' && obj.get('controlledby')==='', 'Transfer Handout must be GM-only, with no player editors.'); }
     function read(obj, field) {
@@ -255,33 +311,80 @@ var D35JournalImporter = D35JournalImporter || (function () {
         check(JSON.stringify(semantic(blobs[0]))===JSON.stringify(data.expected),'Stored source text, formatting, structure, or navigation differs. Object preserved for review.');
         check(emptyBlob(blobs[1]),'Stored GM Notes are not empty. Object preserved for review.');
     }
+    function explicitTarget(data,input,id) {
+        check(data.pkg.filing && data.pkg.filing.legacy_source===null,'Folder-first target requires an approved destination without legacy migration.');
+        check(!Object.keys(store().journals).some(function(k){return store().journals[k].objectId===id;}),'Target already has a managed identity; no adoption.');
+        var obj=getObj('handout',id);
+        check(obj && obj.id!==input.id,'Explicit target Handout missing or is the transfer.');
+        var h=data.pkg.handout,names=findObjs({_type:'handout',name:h.name});
+        check(names.length===1 && names[0].id===id,'Explicit target title missing or ambiguous.');
+        metadata(obj,h);
+        ['archived','avatar','tags','_tags'].forEach(function(field){
+            var value=obj.get(field),emptyTags=(field==='tags'||field==='_tags') && (value==='[]'||Array.isArray(value)&&value.length===0);
+            check(!value || emptyTags,'Target is not pristine: '+field+'='+JSON.stringify(value)+'.');
+        });
+        check(emptyBlob(obj.get('_pins')) || obj.get('_pins')==='[]','Target has pin references.');
+        check(findObjs({_type:'pin',link:id}).length===0,'Target already has a linked pin.');
+        check(filing(data,obj).filed,'Explicit target is not in the exact approved folder.');
+        return obj;
+    }
+    async function pristineTarget(data,input,id) {
+        var obj=explicitTarget(data,input,id);
+        var first=await Promise.all([read(obj,'notes'),read(obj,'gmnotes')]);
+        explicitTarget(data,input,id);
+        check(first.every(emptyBlob),'Explicit target contains content; no overwrite.');
+        var second=await Promise.all([read(obj,'notes'),read(obj,'gmnotes')]);
+        explicitTarget(data,input,id);
+        check(JSON.stringify(first)===JSON.stringify(second) && second.every(emptyBlob),'Explicit target changed during preflight; no overwrite.');
+        return obj;
+    }
     function report(value) {
         try { store().lastReport=value; } catch(e) { /* Never replace incompatible state. */ }
+        log('D35_JOURNAL_REPORT '+JSON.stringify(value));
         sendChat('D35 Journal','/w gm '+escape(value.status.toUpperCase()+': '+value.message).replace(/[\r\n]+/g,' '));
     }
     async function command(msg) {
         if (msg.type!=='api' || !/^!d35journal(?:\s|$)/.test(msg.content)) { return; }
         if (!playerIsGM(msg.playerid)) { return; }
-        if (busy) { report({status:'error',message:'Journal command in progress; wait for its report.'}); return; }
-        var m=/^!d35journal\s+(preview|import)\s+(.+?)\s*$/.exec(msg.content);
-        if(!m) { report({status:'error',message:'Use !d35journal preview TRANSFER or !d35journal import TRANSFER (exact name or ID).'}); return; }
+        var m=/^!d35journal\s+(preview|import|audit)\s+(.+?)(?:\s+--target\s+([-A-Za-z0-9_]+))?(?:\s+--request\s+([-A-Za-z0-9_.:]{1,80}))?\s*$/.exec(msg.content);
+        if(!m) { report({status:'error',message:'Use !d35journal preview|import|audit TRANSFER [--target HANDOUT_ID] [--request NONCE].'}); return; }
+        function emit(value) {value.operation=m[1];value.transferReference=m[2];value.requestId=m[4]||null;report(value);}
+        if (busy) { emit({status:'error',message:'Journal command in progress; wait for its report.'}); return; }
         busy=true;
         var createdId=null, journalKey=null;
         try {
             var input=transfer(m[2]), data=validate(transport(await read(input,'gmnotes')));
             privateHandout(getObj('handout',input.id));
-            var obj=choose(data,input), h=data.pkg.handout;
+            var h=data.pkg.handout, existing=store().journals['journal:'+data.pkg.journal_id];
+            if(m[3] && !existing) {
+                check(m[1]!=='audit','Explicit target is unmanaged; audit never populates.');
+                // Resolve ordinary key/title conflicts without adopting a title match.
+                check(!Object.keys(store().journals).some(function(k){return store().journals[k].title===h.name;}),'Another managed identity owns this title.');
+                var target=await pristineTarget(data,input,m[3]);
+                if(m[1]==='preview') {emit({status:'preview',action:'populate',objectId:target.id,kind:'gm_adventure',message:'Would populate pristine folder-first Handout ['+target.id+']; exact folder and private permissions verified. No writes or identity reservation.'});return;}
+                privateHandout(getObj('handout',input.id));explicitTarget(data,input,m[3]);
+                journalKey='journal:'+data.pkg.journal_id;
+                store().journals[journalKey]={objectId:target.id,title:h.name,fingerprint:data.fingerprint,status:'pending',folderFirst:true};
+                createdId=target.id; // Reserve before blob writes; retain on any failure.
+                target.set('notes',h.notes);target.set('gmnotes','');
+                await verify(target,data);
+                privateHandout(getObj('handout',input.id));choose(data,input);
+                emit(completedReport(data,target,'populated',m[1]));return;
+            }
+            if(m[3]) {check(existing.folderFirst===true && existing.objectId===m[3],'Explicit target conflicts with an existing managed identity.');}
+            var obj=choose(data,input);
             if (obj) {
                 await verify(obj,data);
                 // Check collisions/permissions again after asynchronous blob reads.
                 privateHandout(getObj('handout',input.id)); choose(data,input);
-                if (m[1]==='import') { store().journals['journal:'+data.pkg.journal_id].status='verified'; }
-                report({status:'verified',action:'preserve',objectId:obj.id,journal_id:data.pkg.journal_id,
-                    message:'Verified existing '+h.name+' ['+obj.id+']; no Handout writes. Text, formatting, headings, links, GM Notes and permissions passed.'});
+                emit(completedReport(data,obj,'preserve',m[1]));
             } else if(m[1]==='preview') {
-                report({status:'preview',action:'create',journal_id:data.pkg.journal_id,
-                    message:'Would create '+h.name+' as GM-only. Source checksum and HTML validated. No destination created.'});
+                filing(data,null);
+                emit({status:'preview',action:'create',journal_id:data.pkg.journal_id,
+                    message:'Would create '+h.name+' as GM-only. Source checksum and HTML validated. Native filing remains required. No destination created.'});
             } else {
+                check(m[1]==='import','No managed Handout to audit; audit never creates.');
+                filing(data,null);
                 // Synchronous recheck immediately before creation; do not rely on preview.
                 privateHandout(getObj('handout',input.id)); check(!choose(data,input),'Destination appeared during import; retry verification.');
                 obj=createObj('handout',{name:h.name,inplayerjournals:'',controlledby:''});
@@ -292,14 +395,12 @@ var D35JournalImporter = D35JournalImporter || (function () {
                 obj.set('notes',h.notes); obj.set('gmnotes','');
                 await verify(obj,data);
                 privateHandout(getObj('handout',input.id)); choose(data,input);
-                store().journals[journalKey].status='verified';
-                report({status:'verified',action:'created',objectId:obj.id,journal_id:data.pkg.journal_id,
-                    message:'Created and read-back verified '+h.name+' ['+obj.id+']. Text, formatting, headings, links, empty GM Notes and GM-only permissions passed.'});
+                emit(completedReport(data,obj,'created',m[1]));
             }
         } catch(e) {
-            report({status:'error',objectId:createdId,message:String(e.message || e)+(createdId ? ' Created object ['+createdId+'] retained; identity reserved. No retry will overwrite it or create a duplicate.' : '')});
+            emit({status:'error',objectId:createdId,message:String(e.message || e)+(createdId ? (m[3]?' Target Handout [':' Created object [')+createdId+'] retained; identity reserved. No retry will overwrite it or create a duplicate.' : '')});
         } finally { busy=false; }
     }
-    on('ready',function() { on('chat:message',command); log('D35 Journal Handout Importer v0.1.0 ready (create-or-verify).'); });
+    on('ready',function() { on('chat:message',command); log('D35 Journal Handout Importer v0.1.2 ready (create-or-verify; native folder-first targets).'); });
     return { semantic:semantic,equivalent:equivalent,validate:validate,sha256:sha256 };
 }());

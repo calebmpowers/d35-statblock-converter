@@ -31,16 +31,16 @@ function uploadHarness(){
     return{tab,state,args:{dialogName:'Edit Mysterious Note',transferTitle:'D35 Image Transfer',packagePath,imagePath}};
 }
 function filingHarness(){
-    const state={current:[],target:['r','a','v'],names:pkg.folder_path,expanded:true,drags:[],screenshots:0,visible:true,failedDrag:false,dialogs:0};
+    const state={current:[],target:['r','a','v'],names:pkg.folder_path.slice(),expanded:true,drags:[],screenshots:0,visible:true,failedDrag:false,dialogs:0};
     const report={status:'pending_filing',objectId:'-HANDOUT',evidence:{handoutId:'-HANDOUT',folderIds:state.target,folderPath:state.names}};
-    const ancestry=ids=>({ids,names:ids.length?state.names:[]});
-    const box=top=>({left:100,top,width:200,height:40,viewportWidth:1280,viewportHeight:720});
-    const item={count:async()=>1,evaluate:async fn=>fn.name==='rect'?box(state.visible?500:900):ancestry(state.current)};
-    const destination={count:async()=>1,evaluate:async()=>ancestry(state.target),locator:()=>({evaluate:async()=>box(200)})};
-    const panel={locator:s=>{
+    const ancestry=ids=>({ids,names:ids.length?(JSON.stringify(ids)===JSON.stringify(state.target)?state.names:state.currentNames||state.names):[]});
+    const box=top=>({left:100,top,width:200,height:40,viewportWidth:1280,viewportHeight:state.viewportHeight||720});
+    const item={count:async()=>1,evaluate:async fn=>fn.name==='rect'?box(state.sourceTop??(state.visible?(state.shiftOnCapture&&state.screenshots?450:500):900)):fn.name==='ancestry'?ancestry(state.current):null,locator:()=>({innerText:async()=>'Exact Runtime Section',evaluate:async()=>({...box(500),left:105,width:30})})};
+    const destination={count:async()=>1,evaluate:async()=>ancestry(state.target),innerText:async()=>state.noKeyword?'Unrelated':'Part One: Exact Runtime Section',locator:()=>({evaluate:async()=>box(200),waitFor:async()=>{if(state.failedDrag)throw Error('Native destination wait expired');}})};
+    const panel={getByRole:()=>({evaluate:async()=>state.searchValue||'',fill:async s=>{state.searchValue=s;},press:async()=>{}}),locator:s=>{
         if(s.startsWith('li[data-itemid'))return item;
         if(s==='li.dd-folder')return{evaluateAll:async()=>['r','existing']};
-        if(s.includes('button[data-action'))return{isVisible:async()=>s.includes('existing')&&s.includes('expand')&&!state.expanded,
+        if(s.includes('button[data-action'))return{isVisible:async()=>s.includes('existing')&&(s.includes('expand')?!state.expanded:state.expanded),
             click:async()=>{state.expanded=s.includes('expand');}};
         return destination;
     }};
@@ -49,7 +49,7 @@ function filingHarness(){
         if(role==='tab')return{click:async()=>{}};
         if(role==='tabpanel')return panel;
         throw Error('Unexpected role '+role);
-    }},getScreenshot:async()=>{state.screenshots++;},drag:async(a,b)=>{assert.ok(state.screenshots);state.drags.push([a,b]);if(!state.failedDrag)state.current=state.target.slice();}};
+    }},getScreenshot:async()=>{state.screenshots++;if(state.badCapture)return Buffer.from('unknown');if(state.jpegCapture)return Buffer.from([255,216,255,192,0,11,8,5,72,5,0,3,0,0,0]);const b=Buffer.alloc(24);Buffer.from([137,80,78,71,13,10,26,10]).copy(b);b.writeUInt32BE(state.captureWidth||1280,16);b.writeUInt32BE(state.captureHeight||720,20);return b;},drag:async(a,b)=>{assert.ok(state.screenshots);state.drags.push([a,b]);if(!state.failedDrag)state.current=state.target.slice();}};
     return{tab,state,report};
 }
 async function main(){const api=await import(pathToFileURL(path.join(root,'tools/image_asset_ui.mjs')).href);let count=0;
@@ -64,12 +64,21 @@ async function main(){const api=await import(pathToFileURL(path.join(root,'tools
     await test('manually edited package is not replaced during image registration',async()=>{const h=uploadHarness();h.state.body[1]=JSON.stringify({...pkg,title:'Manual title'});await assert.rejects(()=>api.registerImageTransfer(h.tab,h.args),/Existing content preserved/);assert.ok(!h.state.events.includes('fill-1'));});
     await test('rich-editor padding is normalized without altering meaningful title whitespace',async()=>{const h=uploadHarness();h.state.body[1]=JSON.stringify(pkg,null,2).replace(/\n  /g,'\n\u00a0\u00a0');const r=await api.registerImageTransfer(h.tab,h.args);assert.strictEqual(r.status,'registered');assert.strictEqual(r.runtimePackage.title,pkg.title);});
     await test('native filing uses exact IDs and verifies destination after one drag',async()=>{const h=filingHarness();const r=await api.filePublishedHandout(h.tab,h.report);assert.strictEqual(r.status,'filed');assert.deepStrictEqual(h.state.drags,[[[190,520],[190,220]]]);assert.ok(h.state.expanded,'Unrelated folder UI restored');});
+    await test('animated folder collapse cannot leave stale drag coordinates after screenshot capture',async()=>{const h=filingHarness();h.state.shiftOnCapture=true;const r=await api.filePublishedHandout(h.tab,h.report);assert.strictEqual(r.status,'filed');assert.deepStrictEqual(h.state.drags,[[[190,470],[190,220]]]);});
     await test('already filed object is left unchanged',async()=>{const h=filingHarness();h.state.current=h.state.target.slice();const r=await api.filePublishedHandout(h.tab,h.report);assert.strictEqual(r.status,'already_filed');assert.strictEqual(h.state.drags.length,0);});
     await test('manual move or completed root object is never automatically reorganized',async()=>{for(const prior of ['manual','verified']){const h=filingHarness();if(prior==='manual')h.state.current=['manual'];else h.report.status='verified';await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/manual filing/);assert.strictEqual(h.state.drags.length,0);}});
     await test('unsafe selector identities and missing importer evidence fail before UI actions',async()=>{const h=filingHarness();h.report.evidence.folderIds[2]='"] unsafe';await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/identities/);await assert.rejects(()=>api.filePublishedHandout(h.tab,{}),/actual importer/);assert.strictEqual(h.state.drags.length,0);});
     await test('offscreen drag endpoints are reported without guessing or moving',async()=>{const h=filingHarness();h.state.visible=false;await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/viewport/);assert.strictEqual(h.state.drags.length,0);assert.ok(h.state.expanded);});
     await test('failed native filing is not blindly retried and UI expansion is restored',async()=>{const h=filingHarness();h.state.failedDrag=true;await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/No automatic retry/);assert.strictEqual(h.state.drags.length,1);assert.ok(h.state.expanded);});
     await test('open dialogs prevent dragging through an overlay',async()=>{const h=filingHarness();h.state.dialogs=1;await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/Close Handout dialogs/);assert.strictEqual(h.state.drags.length,0);});
+    await test('GM filing reuses the same native drag with an explicitly approved legacy source',async()=>{const h=filingHarness();h.report.kind='gm_adventure';h.state.names[0]='Savage Tide Adventure Path';h.state.current=['stage'];h.state.currentNames=['Handouts'];h.report.evidence.sourceFolderIds=['stage'];h.report.evidence.sourceFolderPath=['Handouts'];h.state.searchValue='original';const r=await api.filePublishedHandout(h.tab,h.report);assert.strictEqual(r.status,'filed');assert.strictEqual(h.state.drags.length,1);assert.strictEqual(h.state.searchValue,'original');assert.match(r.next,/d35journal/);});
+    await test('GM legacy filing refuses a different actual source location',async()=>{const h=filingHarness();h.report.kind='gm_adventure';h.state.names[0]='Savage Tide Adventure Path';h.state.current=['manual'];h.state.currentNames=['Manual'];h.report.evidence.sourceFolderIds=['stage'];h.report.evidence.sourceFolderPath=['Handouts'];await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/manual filing/);assert.strictEqual(h.state.drags.length,0);});
+    await test('Player workflow cannot opt into legacy folder moves',async()=>{const h=filingHarness();h.state.current=['stage'];h.state.currentNames=['Handouts'];h.report.evidence.sourceFolderIds=['stage'];h.report.evidence.sourceFolderPath=['Handouts'];await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/manual filing/);assert.strictEqual(h.state.drags.length,0);});
+    await test('actual 2400px DOM and 1352px capture mismatch refuses y1899 drag before input',async()=>{const h=filingHarness();h.state.viewportHeight=2400;h.state.captureHeight=1352;h.state.sourceTop=1879;await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/captured browser surface \(1280x1352\)/);assert.strictEqual(h.state.drags.length,0);assert.ok(h.state.expanded);});
+    await test('unknown capture format refuses input rather than trusting DOM bounds',async()=>{const h=filingHarness();h.state.badCapture=true;await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/Cannot verify captured/);assert.strictEqual(h.state.drags.length,0);});
+    await test('mismatched capture width refuses an unsupported coordinate scale',async()=>{const h=filingHarness();h.state.captureWidth=640;await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/captured browser surface/);assert.strictEqual(h.state.drags.length,0);});
+    await test('native JPEG dimensions enforce the same captured-surface guard',async()=>{const h=filingHarness();h.state.viewportHeight=2400;h.state.sourceTop=1879;h.state.jpegCapture=true;await assert.rejects(()=>api.filePublishedHandout(h.tab,h.report),/captured browser surface \(1280x1352\)/);assert.strictEqual(h.state.drags.length,0);});
     console.log('Image Asset UI: '+count+' checks passed.');
 }
-main().catch(e=>{console.error(e.stack);process.exitCode=1;});
+module.exports={filingHarness};
+if(require.main===module)main().catch(e=>{console.error(e.stack);process.exitCode=1;});
