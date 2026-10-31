@@ -1,0 +1,117 @@
+{
+  "schema": "d35-dynamic-lighting/0.1",
+  "lighting_id": "synthetic.lighting",
+  "title": "Synthetic Lighting Mechanics",
+  "map": {
+    "package": {
+      "schema": "d35-map-page/0.1",
+      "setup_id": "synthetic.lighting.map",
+      "title": "Synthetic Map",
+      "source": {
+        "asset_id": "synthetic-map",
+        "filename": "Synthetic Map.jpg",
+        "url": "https://example.invalid/synthetic-map",
+        "pixel_width": 1000,
+        "pixel_height": 800,
+        "columns": 10,
+        "rows": 8,
+        "distance_per_cell": 5,
+        "units": "ft",
+        "authority": "Entirely synthetic test fixture; full image and alignment explicitly specified."
+      },
+      "page_settings": {
+        "width": 10,
+        "height": 8,
+        "scale_number": 5,
+        "scale_units": "ft",
+        "grid_type": "square",
+        "snapping_increment": 1,
+        "showgrid": true,
+        "grid_offset_x": 0,
+        "grid_offset_y": 0
+      },
+      "placement": {
+        "width": 700,
+        "height": 560,
+        "left": 350,
+        "top": 280,
+        "rotation": 0,
+        "layer": "map",
+        "fliph": false,
+        "flipv": false
+      },
+      "crop": "full",
+      "visibility": "gm_only",
+      "target": {
+        "id": null,
+        "name": "Synthetic Lighting Page"
+      },
+      "image": {
+        "mode": "configure",
+        "graphic_id": null
+      }
+    },
+    "page_id": "synthetic-page",
+    "graphic_id": "synthetic-graphic",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "compatibility": {
+    "engine": "latest",
+    "native_path_id": "synthetic-witness"
+  },
+  "review": {
+    "status": "approved",
+    "by": "Synthetic test only",
+    "rationale": "Synthetic opaque elbow barrier; no adventure content or production approval.",
+    "decisions": []
+  },
+  "lighting": {
+    "before": {
+      "dynamic_lighting_enabled": false,
+      "daylight_mode_enabled": false,
+      "lightrestrictmove": false
+    },
+    "after": {
+      "dynamic_lighting_enabled": true,
+      "daylight_mode_enabled": true,
+      "lightrestrictmove": false
+    }
+  },
+  "barriers": [
+    {
+      "id": "synthetic.elbow",
+      "points": [
+        [
+          0.1,
+          0.1
+        ],
+        [
+          0.5,
+          0.1
+        ],
+        [
+          0.5,
+          0.6
+        ]
+      ],
+      "rationale": "Entirely synthetic ordinary wall.",
+      "certainty": "confirmed"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "review.only",
+      "points": [
+        [
+          0.7,
+          0.1
+        ],
+        [
+          0.8,
+          0.2
+        ]
+      ],
+      "label": "Review overlay only; never imported."
+    }
+  ]
+}

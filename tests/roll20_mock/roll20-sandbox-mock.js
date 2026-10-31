@@ -32,6 +32,19 @@ class Roll20Object {
             delete this._attrs.pageid;
         }
 
+        if (type === 'path' || type === 'pathv2') {
+            this._attrs = Object.assign({fill:'transparent',stroke:'#000000',rotation:0,
+                layer:'',stroke_width:5,controlledby:'',barrierType:'wall',oneWayReversed:false,
+                fadeOnOverlap:true,fadeOpacity:0.3,renderAsScenery:false,
+                interactionManualReset:false,interactionTriggered:false}, this._attrs);
+            this._attrs._pageid = this._attrs.pageid || this._attrs._pageid || '';
+            delete this._attrs.pageid;
+            if (type === 'path' && 'path' in this._attrs) {
+                this._attrs._path = this._attrs.path;
+                delete this._attrs.path;
+            }
+        }
+
         if (this._attrs.characterid && !this._attrs._characterid) {
             this._attrs._characterid = this._attrs.characterid;
         }
@@ -58,6 +71,10 @@ class Roll20Object {
 
     set(prop, value) {
         const changes = typeof prop === 'string' ? { [prop]: value } : prop || {};
+        if (this._world.strictLighting && ['path','pathv2'].includes(this._attrs._type) &&
+                Object.keys(changes).some(k => k.startsWith('_') || ['id','type','pageid','path'].includes(k))) {
+            throw new Error('Lighting path identity, parent and classic path geometry are read-only.');
+        }
         if (this._world.strictPins && this._attrs._type === 'pin' &&
                 Object.keys(changes).some(k => k.startsWith('_') || ['id', 'type', 'pageid'].includes(k))) {
             throw new Error('Pin identity and parent properties are read-only after creation.');
@@ -154,6 +171,8 @@ function createRoll20Mock(options = {}) {
         state: {},
         hooks: {},
         strictPins: options.strictPins === true,
+        strictLighting: options.strictLighting === true,
+        lightingEngine: options.lightingEngine || 'latest',
         suspendBlobs: false,
         defaultCapture: 'normal',
         workerWrites: [],
@@ -200,6 +219,18 @@ function createRoll20Mock(options = {}) {
             }
             if (['character', 'handout'].includes(normalized) && ['bio', 'notes', 'gmnotes', '_defaulttoken', 'defaulttoken'].some((key) => key in (attrs || {}))) {
                 throw new Error('Roll20 blob fields must be set after object creation.');
+            }
+            if (world.strictLighting && ['path','pathv2'].includes(normalized)) {
+                if ((normalized === 'pathv2' ? 'latest' : 'classic') !== world.lightingEngine) {
+                    throw new Error('Path type unavailable on this mock VTT engine.');
+                }
+                if (!attrs || !world.getObj('page',attrs.pageid)) { throw new Error('Path creation requires pageid.'); }
+                const common=['pageid','fill','stroke','rotation','layer','stroke_width','controlledby','barrierType','oneWayReversed'];
+                const allowed=common.concat(normalized==='pathv2'?['shape','points','x','y']:['path','width','height','left','top','scaleX','scaleY']);
+                if (Object.keys(attrs).some(k=>!allowed.includes(k))) { throw new Error('Unsupported lighting create property.'); }
+                const ps=JSON.parse(attrs[normalized==='pathv2'?'points':'path']);
+                if (!Array.isArray(ps) || ps.length<2) { throw new Error('Invalid native path geometry.'); }
+                if (normalized==='pathv2' && attrs.shape!=='pol') { throw new Error('Expected documented polyline shape.'); }
             }
             if (world.hooks.beforeCreate) { world.hooks.beforeCreate(normalized, attrs); }
             const obj = new Roll20Object(world, normalized, makeId(), attrs || {});
