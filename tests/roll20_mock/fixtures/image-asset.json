@@ -1,0 +1,19 @@
+{
+  "schema": "d35-image-asset/0.1",
+  "publication_id": "synthetic.approved-visual",
+  "kind": "player_handout",
+  "title": "Approved Test Visual",
+  "folder_path": ["Savage Tide Player Handouts", "Example Adventure", "Visuals"],
+  "visibility": "gm_only",
+  "image": {"display_url": "https://files.d20.io/images/901/approvedHash/max.webp"},
+  "source": {
+    "kind": "synthetic",
+    "asset_id": "example-approved-visual",
+    "filename": "approved-test.png",
+    "url": "synthetic://example-approved-visual",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pixel_width": 16,
+    "pixel_height": 24,
+    "authority": "Synthetic test fixture; explicit test title and established Player Handouts folder role. Contains no adventure material."
+  }
+}
